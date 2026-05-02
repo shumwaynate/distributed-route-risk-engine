@@ -21,9 +21,10 @@ services:
   worker:
     build: .
     container_name: distributed-ai-worker
-    command: celery -A app.worker.celery_app.celery_app worker --loglevel=info --concurrency=4
+    command: celery -A app.worker.celery_app.celery_app worker --loglevel=info --concurrency=${WORKER_CONCURRENCY:-4}
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-4}
     volumes:
       - .:/app
     depends_on:

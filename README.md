@@ -146,6 +146,16 @@ timestamp,task_count,delay_seconds,total_runtime_seconds,throughput_tasks_per_se
 
 ---
 
+## Automated Scaling Experiment
+
+The project includes a scaling experiment script that automatically tests multiple worker concurrency levels.
+
+Example:
+
+```bash
+./scripts/run_scaling_experiment.sh 1 2 4
+
+
 ## What Has Been Implemented
 
 - Distributed task execution
