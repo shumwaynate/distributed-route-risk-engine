@@ -2,24 +2,26 @@ Set-Location (Join-Path $PSScriptRoot "..")
 
 Write-Host ""
 Write-Host "============================================================"
-Write-Host "ROUTE RISK FAN-OUT API TEST"
+Write-Host "ROUTE RISK COORDINATE FAN-OUT API TEST"
 Write-Host "============================================================"
 Write-Host ""
 
 # ============================================================
-# ROUTE RISK ENGINE FAN-OUT API TEST
+# ROUTE RISK ENGINE COORDINATE FAN-OUT API TEST
 # ============================================================
 #
 # Purpose:
-# - Submit a larger route-risk job to FastAPI.
-# - Use 8 route segments instead of 2.
+# - Submit a larger coordinate-enabled route-risk job to FastAPI.
+# - Use 8 route segments with latitude and longitude values.
 # - Prove that one route request can fan out into many Celery tasks.
+# - Preserve coordinates in every route segment result.
 # - Save the returned job_id automatically.
 # - Check job status without manual copying.
-# - Fetch raw segment results and aggregated route-level results.
-# - Fetch the clean user-facing route-risk summary endpoint.
+# - Fetch raw task results.
+# - Fetch the clean user-facing route-risk summary.
 #
 # Requirements:
+# - Docker Desktop must be running.
 # - FastAPI must be running.
 # - Redis must be running.
 # - Celery worker must be running.
@@ -33,102 +35,134 @@ Write-Host ""
 #     .\scripts\test_route_risk_fanout_api.ps1
 
 $body = @{
-    route_name = "Rexburg to Idaho Falls Extended Fan-Out Test Route"
+    route_name = "Rexburg to Idaho Falls Coordinate Fan-Out Test Route"
     origin = "Rexburg, ID"
     destination = "Idaho Falls, ID"
     segments = @(
         @{
             label = "Rexburg to Thornton"
+            latitude = 43.7742
+            longitude = -111.8118
+
             weather = @{
                 temperature_f = 26
                 wind_mph = 12
                 condition = "snow"
                 visibility_miles = 3
             }
+
             road_condition = "normal"
             is_night = $true
         },
         @{
-            label = "Thornton to Sugar City Junction"
+            label = "Thornton to South Rexburg Junction"
+            latitude = 43.7068
+            longitude = -111.8670
+
             weather = @{
                 temperature_f = 24
                 wind_mph = 18
                 condition = "snow"
                 visibility_miles = 2
             }
+
             road_condition = "icy"
             is_night = $true
         },
         @{
-            label = "Sugar City Junction to Rigby North"
+            label = "South Rexburg Junction to Rigby North"
+            latitude = 43.6505
+            longitude = -111.9115
+
             weather = @{
                 temperature_f = 30
                 wind_mph = 10
                 condition = "cloudy"
                 visibility_miles = 5
             }
+
             road_condition = "normal"
             is_night = $true
         },
         @{
             label = "Rigby North to Rigby South"
+            latitude = 43.6108
+            longitude = -111.9558
+
             weather = @{
                 temperature_f = 34
                 wind_mph = 28
                 condition = "cloudy"
                 visibility_miles = 6
             }
+
             road_condition = "construction"
             is_night = $true
         },
         @{
             label = "Rigby South to Lorenzo"
+            latitude = 43.5749
+            longitude = -111.9815
+
             weather = @{
                 temperature_f = 32
                 wind_mph = 26
                 condition = "light snow"
                 visibility_miles = 2
             }
+
             road_condition = "normal"
             is_night = $true
         },
         @{
-            label = "Lorenzo to Roberts"
+            label = "Lorenzo to Idaho Falls North"
+            latitude = 43.5456
+            longitude = -112.0064
+
             weather = @{
                 temperature_f = 29
                 wind_mph = 32
                 condition = "fog"
                 visibility_miles = 1
             }
+
             road_condition = "normal"
             is_night = $true
         },
         @{
-            label = "Roberts to Idaho Falls North"
+            label = "Idaho Falls North to Central Idaho Falls"
+            latitude = 43.5125
+            longitude = -112.0298
+
             weather = @{
                 temperature_f = 36
                 wind_mph = 14
                 condition = "rain"
                 visibility_miles = 4
             }
+
             road_condition = "construction"
             is_night = $true
         },
         @{
-            label = "Idaho Falls North to Downtown Idaho Falls"
+            label = "Central Idaho Falls to Downtown Idaho Falls"
+            latitude = 43.4927
+            longitude = -112.0408
+
             weather = @{
                 temperature_f = 38
                 wind_mph = 8
                 condition = "clear"
                 visibility_miles = 8
             }
+
             road_condition = "normal"
             is_night = $false
         }
     )
 } | ConvertTo-Json -Depth 10
 
-Write-Host "Submitting extended route-risk fan-out job..."
+Write-Host "Submitting coordinate-enabled route-risk fan-out job..."
 Write-Host ""
 
 try {
@@ -209,12 +243,14 @@ $summary | ConvertTo-Json -Depth 30
 
 Write-Host ""
 Write-Host "============================================================"
-Write-Host "FAN-OUT TEST SUMMARY"
+Write-Host "COORDINATE FAN-OUT TEST SUMMARY"
 Write-Host "============================================================"
 Write-Host ""
 
 Write-Host "Expected task count: 8"
 Write-Host "Actual task count: $($response.task_count)"
+Write-Host "Expected coordinate-enabled segment count: 8"
+Write-Host "Actual coordinate-enabled segment count: $($summary.coordinate_segment_count)"
 Write-Host "Job status: $($status.status)"
 Write-Host "Progress percent: $($status.progress_percent)"
 
@@ -230,6 +266,8 @@ Write-Host "Route risk level: $($summary.route_risk_level)"
 
 if ($summary.highest_risk_segment) {
     Write-Host "Highest-risk segment: $($summary.highest_risk_segment.segment_label)"
+    Write-Host "Highest-risk latitude: $($summary.highest_risk_segment.latitude)"
+    Write-Host "Highest-risk longitude: $($summary.highest_risk_segment.longitude)"
     Write-Host "Highest-risk segment score: $($summary.highest_risk_segment.risk_score)"
     Write-Host "Highest-risk segment level: $($summary.highest_risk_segment.risk_level)"
 }
@@ -240,6 +278,6 @@ Write-Host $summary.summary
 
 Write-Host ""
 Write-Host "============================================================"
-Write-Host "END ROUTE RISK FAN-OUT API TEST"
+Write-Host "END ROUTE RISK COORDINATE FAN-OUT API TEST"
 Write-Host "============================================================"
 Write-Host ""

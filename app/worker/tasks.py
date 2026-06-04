@@ -15,7 +15,7 @@ os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 import numpy as np
 
 from app.worker.celery_app import celery_app
-from route_risk.scoring import score_route, score_segment
+from route_risk.core.scoring import score_route, score_segment
 
 
 # ============================================================
@@ -89,16 +89,6 @@ def transient_unreliable_square(
 
     This task intentionally fails for the first fail_attempts attempts, then
     succeeds on a later retry.
-
-    Celery's self.request.retries value starts at 0 on the first attempt.
-    For example, if fail_attempts is 2:
-
-    attempt 1: retries = 0, fail and retry
-    attempt 2: retries = 1, fail and retry
-    attempt 3: retries = 2, succeed
-
-    This is useful for proving that retry behavior works, not just failure
-    reporting.
     """
     current_retry_count = self.request.retries
     current_attempt_number = current_retry_count + 1
@@ -125,8 +115,6 @@ def transient_unreliable_square(
 def _deterministic_vector(seed: int, size: int) -> List[float]:
     """
     Creates a deterministic pseudo-random vector.
-
-    The seed makes the workload repeatable for the same input values.
     """
     rng = random.Random(seed)
     return [rng.random() for _ in range(size)]
@@ -143,11 +131,6 @@ def _dot_product(a: List[float], b: List[float]) -> float:
 def vector_similarity_task(task_id: int, vector_size: int = 1000) -> Dict[str, float]:
     """
     AI-style deterministic vector similarity workload.
-
-    This simulates the kind of vector math used in embedding comparison,
-    recommendation systems, retrieval systems, and other AI-adjacent systems.
-
-    The output is a small summary rather than a huge vector.
     """
     vector_a = _deterministic_vector(task_id, vector_size)
     vector_b = _deterministic_vector(task_id + 10_000, vector_size)
@@ -173,13 +156,6 @@ def vector_similarity_task(task_id: int, vector_size: int = 1000) -> Dict[str, f
 def _matrix_iterations_for_size(matrix_size: int) -> int:
     """
     Chooses a repeat count for the matrix workload.
-
-    NumPy matrix multiplication can be very fast after initial warmup.
-    Repeating the multiplication inside each task makes the workload more
-    consistent and gives the scaling experiment enough work to measure.
-
-    Smaller matrices need more iterations.
-    Larger matrices need fewer iterations.
     """
     if matrix_size <= 250:
         return 160
@@ -203,17 +179,6 @@ def _matrix_iterations_for_size(matrix_size: int) -> int:
 def matrix_compute_task(task_id: int, matrix_size: int = 700) -> Dict[str, float]:
     """
     AI-style deterministic NumPy matrix compute workload.
-
-    This simulates CPU-based numerical work similar to what appears in
-    machine learning pipelines, vector processing, and scientific computing.
-
-    The workload is deterministic because each task uses a seeded NumPy random
-    generator. The task returns a checksum instead of the full matrix so results
-    stay small and easy to store.
-
-    To make timing more stable, each task performs repeated matrix
-    multiplications. This reduces the impact of one-time NumPy warmup and makes
-    worker scaling easier to measure.
     """
     rng = np.random.default_rng(seed=task_id)
 
@@ -240,23 +205,19 @@ def matrix_compute_task(task_id: int, matrix_size: int = 700) -> Dict[str, float
 # ROUTE RISK ENGINE LOGIC
 # ============================================================
 #
-# These tasks belong to the new Route Risk / Driving Recommendation Engine
-# direction.
-#
-# Important design goal:
-# The Route Risk Engine should reuse the existing distributed orchestrator
-# infrastructure instead of replacing it.
+# These tasks belong to the Route Risk / Driving Recommendation Engine.
 #
 # Current stage:
-# - Uses local/sample route data only.
-# - Does not call live APIs yet.
-# - Proves that route-risk workloads can run inside Celery workers.
+# - Uses local or manually provided route data.
+# - Supports optional latitude and longitude values.
+# - Scores route segments independently.
+# - Preserves coordinates in results for future API integration.
 #
 # Future stages:
-# - Add live weather data.
-# - Add road-condition data.
-# - Add routing/geocoding data.
-# - Benchmark route-risk workloads across multiple worker containers.
+# - Use coordinates to fetch live weather data.
+# - Use coordinates to match road-condition data.
+# - Use routing APIs to generate route segment points.
+# - Benchmark route-risk workloads across Docker worker containers.
 
 
 @celery_app.task
@@ -267,32 +228,11 @@ def route_segment_risk_task(
     """
     Score a single route segment inside a Celery worker.
 
-    This is the first Route Risk Engine workload added to the original
-    Distributed AI Task Orchestrator.
+    Each route segment can be processed independently, making it a good fit
+    for distributed Celery workers.
 
-    Parameters:
-        task_id:
-            Numeric ID used for tracking and benchmark consistency.
-
-        segment:
-            Dictionary containing:
-            - label
-            - weather
-            - road_condition
-            - is_night
-
-    Returns:
-        Dictionary containing:
-        - task_id
-        - workload
-        - segment_label
-        - risk_score
-        - risk_level
-        - factors
-
-    Why this matters:
-    Each route segment can be processed independently, which makes it a good
-    fit for distributed Celery workers.
+    Optional coordinates are preserved in the output so later stages can use
+    the same task result for weather, road-condition, and geospatial analysis.
     """
 
     segment_result = score_segment(
@@ -305,6 +245,8 @@ def route_segment_risk_task(
         "task_id": task_id,
         "workload": "route_segment_risk",
         "segment_label": segment.get("label", "Unnamed segment"),
+        "latitude": segment.get("latitude"),
+        "longitude": segment.get("longitude"),
         "risk_score": segment_result["risk_score"],
         "risk_level": segment_result["risk_level"],
         "factors": segment_result["factors"],
@@ -319,21 +261,9 @@ def route_risk_summary_task(
     """
     Score a full route inside a Celery worker.
 
-    This task is useful for early testing because it allows one worker task to
-    process a complete sample route and return a readable risk summary.
-
-    Later, we can split the route into separate segment tasks and combine the
-    results using the existing job/status/result infrastructure.
-
-    Parameters:
-        task_id:
-            Numeric ID used for tracking and benchmark consistency.
-
-        segments:
-            List of route segment dictionaries.
-
-    Returns:
-        Dictionary containing full route-risk results.
+    This task is retained for direct testing and early prototype comparisons.
+    The main distributed API route currently uses one route_segment_risk_task
+    per segment.
     """
 
     route_result = score_route(segments)

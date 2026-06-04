@@ -1,18 +1,18 @@
 """
-route_risk/manual_test.py
+route_risk/testing/manual_test.py
 
 Manual test runner for the Route Risk Engine.
 
 Purpose:
 - Run route-risk scoring against predictable sample data.
 - Print clean, readable terminal output.
-- Keep testing code separate from the scoring logic.
+- Keep testing code separate from the core scoring logic.
 
-This file is part of the route-risk pivot.
+This file is part of the route-risk testing utilities.
 
 It does not replace the original orchestrator.
 It gives us a safe way to test route-risk behavior before connecting it
-to FastAPI, Redis, Celery, Docker, and benchmarking.
+to FastAPI, Redis, Celery, Docker, and external APIs.
 """
 
 import json
@@ -28,23 +28,23 @@ from typing import Any, Dict
 # Why this exists:
 # When running this file directly like:
 #
-#     python .\route_risk\manual_test.py
+#     python .\route_risk\testing\manual_test.py
 #
-# Python may only look inside the route_risk folder instead of the full
-# project root. This section makes sure the project root is available
-# so imports like "from route_risk.scoring import score_route" work.
+# Python may only look inside the route_risk/testing folder instead of the full
+# project root. This section makes sure the project root is available so
+# imports like "from route_risk.core.scoring import score_route" work.
 #
 # This is only for local manual testing convenience.
 # It does not change the original orchestrator architecture.
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-from route_risk.sample_data import get_sample_route
-from route_risk.scoring import score_route
+from route_risk.core.scoring import score_route
+from route_risk.testing.sample_data import get_sample_route
 
 
 # ============================================================

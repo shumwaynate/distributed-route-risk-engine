@@ -1,10 +1,10 @@
 """
-route_risk/manual_celery_task_test.py
+route_risk/testing/manual_celery_task_test.py
 
 Manual test runner for Route Risk Celery task functions.
 
 Purpose:
-- Confirm the new Route Risk Engine Celery task functions can be imported.
+- Confirm the Route Risk Engine Celery task functions can be imported.
 - Confirm the route-risk workload works from app/worker/tasks.py.
 - Print readable terminal output.
 - Test the task logic before requiring Redis, Docker, or a running Celery worker.
@@ -30,14 +30,14 @@ from typing import Any, Dict
 # IMPORT PATH SETUP FOR LOCAL MANUAL TESTING
 # ============================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
 from app.worker.tasks import route_risk_summary_task, route_segment_risk_task
-from route_risk.sample_data import get_sample_route
+from route_risk.testing.sample_data import get_sample_route
 
 
 # ============================================================

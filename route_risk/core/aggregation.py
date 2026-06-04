@@ -1,5 +1,5 @@
 """
-route_risk/aggregation.py
+route_risk/core/aggregation.py
 
 Aggregation helpers for the Route Risk Engine.
 
@@ -8,7 +8,7 @@ Purpose:
 - Preserve the distributed design where each segment can be scored separately.
 - Prepare for future route comparison, such as safest, fastest, and balanced routes.
 
-This file belongs to the Route Risk Engine pivot.
+This file belongs to the Route Risk Engine core logic.
 
 It does not replace the original orchestrator.
 It helps turn distributed segment results into a user-facing route summary.
@@ -27,22 +27,22 @@ from typing import Any, Dict, List
 # Why this exists:
 # When running this file directly like:
 #
-#     python .\route_risk\aggregation.py
+#     python .\route_risk\core\aggregation.py
 #
-# Python may only look inside the route_risk folder instead of the full
-# project root. This section makes sure the project root is available
-# so imports like "from route_risk.scoring import classify_risk" work.
+# Python may only look inside the route_risk/core folder instead of the full
+# project root. This section makes sure the project root is available so
+# imports like "from route_risk.core.scoring import classify_risk" work.
 #
 # This is only for local manual testing convenience.
 # It does not change the original orchestrator architecture.
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-from route_risk.scoring import classify_risk
+from route_risk.core.scoring import classify_risk
 
 
 # ============================================================
@@ -159,23 +159,6 @@ def extract_successful_segment_results(
 ) -> List[Dict[str, Any]]:
     """
     Extract successful route segment results from the existing /results format.
-
-    Existing /results format:
-        [
-            {
-                "task_id": "celery-task-id",
-                "status": "SUCCESS",
-                "result": {
-                    "task_id": 1,
-                    "workload": "route_segment_risk",
-                    "segment_label": "...",
-                    "risk_score": 70,
-                    "risk_level": "High",
-                    "factors": [...]
-                },
-                "error": None
-            }
-        ]
 
     This helper filters out:
     - failed tasks

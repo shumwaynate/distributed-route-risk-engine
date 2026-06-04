@@ -18,7 +18,7 @@ from app.worker.tasks import (
     unreliable_square,
     vector_similarity_task,
 )
-from route_risk.aggregation import aggregate_job_results
+from route_risk.core.aggregation import aggregate_job_results
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
@@ -33,7 +33,7 @@ app = FastAPI(
         "Distributed task orchestration prototype using FastAPI, Redis, and Celery. "
         "Now includes Route Risk Engine workloads."
     ),
-    version="0.8.0",
+    version="0.9.0",
 )
 
 
@@ -73,6 +73,21 @@ class VectorBatchRequest(BaseModel):
 # ============================================================
 # ROUTE RISK ENGINE REQUEST MODELS
 # ============================================================
+#
+# Route segments now support optional latitude and longitude values.
+#
+# Why coordinates matter:
+# - Weather APIs usually require latitude and longitude.
+# - Routing APIs return geographic points along a route.
+# - Road-condition data can be matched to nearby route coordinates.
+#
+# Coordinates are optional during the transition so existing manual tests
+# continue to work.
+#
+# Validation:
+# - Latitude must be between -90 and 90.
+# - Longitude must be between -180 and 180.
+
 
 class RouteWeatherData(BaseModel):
     temperature_f: Optional[float] = None
@@ -83,6 +98,21 @@ class RouteWeatherData(BaseModel):
 
 class RouteSegmentRequest(BaseModel):
     label: str = "Unnamed segment"
+
+    latitude: Optional[float] = Field(
+        default=None,
+        ge=-90,
+        le=90,
+        description="Latitude of the route segment analysis point.",
+    )
+
+    longitude: Optional[float] = Field(
+        default=None,
+        ge=-180,
+        le=180,
+        description="Longitude of the route segment analysis point.",
+    )
+
     weather: RouteWeatherData
     road_condition: str = "normal"
     is_night: bool = False
@@ -199,6 +229,7 @@ def _build_route_risk_summary_response(job_id: str) -> Dict[str, Any]:
         "origin": metadata.get("origin"),
         "destination": metadata.get("destination"),
         "segment_count": metadata.get("segment_count"),
+        "coordinate_segment_count": metadata.get("coordinate_segment_count"),
         "route_risk_score": aggregated_route_risk["route_risk_score"],
         "route_risk_level": aggregated_route_risk["route_risk_level"],
         "highest_risk_segment": aggregated_route_risk["highest_risk_segment"],
@@ -393,6 +424,7 @@ def submit_route_risk_job(request: RouteRiskJobRequest) -> Dict[str, Any]:
 
     Current version:
     - Accepts route segments directly.
+    - Supports optional latitude and longitude values per segment.
     - Submits one route_segment_risk_task per segment.
     - Reuses the existing Redis job tracking system.
     - Reuses the existing /job_status/{job_id} endpoint.
@@ -402,6 +434,13 @@ def submit_route_risk_job(request: RouteRiskJobRequest) -> Dict[str, Any]:
 
     task_ids = []
     segments = [segment.model_dump() for segment in request.segments]
+
+    coordinate_segment_count = sum(
+        1
+        for segment in segments
+        if segment.get("latitude") is not None
+        and segment.get("longitude") is not None
+    )
 
     for index, segment in enumerate(segments, start=1):
         task = route_segment_risk_task.delay(
@@ -418,7 +457,8 @@ def submit_route_risk_job(request: RouteRiskJobRequest) -> Dict[str, Any]:
             "origin": request.origin,
             "destination": request.destination,
             "segment_count": len(segments),
-            "prototype_stage": "manual_segments_distributed_segment_tasks",
+            "coordinate_segment_count": coordinate_segment_count,
+            "prototype_stage": "manual_segments_with_optional_coordinates",
         },
     )
 
@@ -431,6 +471,7 @@ def submit_route_risk_job(request: RouteRiskJobRequest) -> Dict[str, Any]:
         "origin": request.origin,
         "destination": request.destination,
         "segment_count": len(segments),
+        "coordinate_segment_count": coordinate_segment_count,
         "summary_endpoint": f"/route_risk_summary/{job_id}",
     }
 
@@ -447,6 +488,7 @@ def route_risk_summary(job_id: str) -> Dict[str, Any]:
     - origin
     - destination
     - total segment count
+    - coordinate-enabled segment count
     - route risk score
     - route risk level
     - highest-risk segment

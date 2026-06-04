@@ -12,6 +12,7 @@ Write-Host ""
 #
 # Purpose:
 # - Submit a route-risk job to FastAPI.
+# - Include latitude and longitude for each route segment.
 # - Save the returned job_id automatically.
 # - Check job status without manual copying.
 # - Fetch raw results without manual copying.
@@ -19,6 +20,7 @@ Write-Host ""
 # - Print readable JSON output.
 #
 # Requirements:
+# - Docker Desktop must be running.
 # - FastAPI must be running.
 # - Redis must be running.
 # - Celery worker must be running.
@@ -32,36 +34,48 @@ Write-Host ""
 #     .\scripts\test_route_risk_api.ps1
 
 $body = @{
-    route_name = "Rexburg to Idaho Falls Test Route"
+    route_name = "Rexburg to Idaho Falls Coordinate Test Route"
     origin = "Rexburg, ID"
     destination = "Idaho Falls, ID"
     segments = @(
         @{
             label = "Rexburg to Rigby"
+
+            # Approximate route analysis point near Rexburg / US-20.
+            latitude = 43.7419
+            longitude = -111.8464
+
             weather = @{
                 temperature_f = 28
                 wind_mph = 18
                 condition = "snow"
                 visibility_miles = 3
             }
+
             road_condition = "normal"
             is_night = $true
         },
         @{
             label = "Rigby to Idaho Falls"
+
+            # Approximate route analysis point near Rigby / US-20.
+            latitude = 43.5987
+            longitude = -111.9716
+
             weather = @{
                 temperature_f = 34
                 wind_mph = 30
                 condition = "cloudy"
                 visibility_miles = 5
             }
+
             road_condition = "construction"
             is_night = $true
         }
     )
 } | ConvertTo-Json -Depth 10
 
-Write-Host "Submitting route-risk job..."
+Write-Host "Submitting coordinate-enabled route-risk job..."
 Write-Host ""
 
 try {
@@ -151,11 +165,14 @@ Write-Host "Route name: $($summary.route_name)"
 Write-Host "Origin: $($summary.origin)"
 Write-Host "Destination: $($summary.destination)"
 Write-Host "Segment count: $($summary.segment_count)"
+Write-Host "Coordinate-enabled segment count: $($summary.coordinate_segment_count)"
 Write-Host "Route risk score: $($summary.route_risk_score)"
 Write-Host "Route risk level: $($summary.route_risk_level)"
 
 if ($summary.highest_risk_segment) {
     Write-Host "Highest-risk segment: $($summary.highest_risk_segment.segment_label)"
+    Write-Host "Highest-risk segment latitude: $($summary.highest_risk_segment.latitude)"
+    Write-Host "Highest-risk segment longitude: $($summary.highest_risk_segment.longitude)"
     Write-Host "Highest-risk segment score: $($summary.highest_risk_segment.risk_score)"
     Write-Host "Highest-risk segment level: $($summary.highest_risk_segment.risk_level)"
 }
