@@ -20,6 +20,10 @@ from app.worker.tasks import (
     vector_similarity_task,
 )
 from route_risk.core.aggregation import aggregate_job_results
+from route_risk.integrations.road_conditions_client import (
+    apply_road_conditions_to_checkpoints,
+)
+from route_risk.integrations.routing_client import fetch_route_between_coordinates
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
@@ -32,9 +36,10 @@ app = FastAPI(
     title="Distributed AI Task Orchestrator",
     description=(
         "Distributed task orchestration prototype using FastAPI, Redis, and Celery. "
-        "Now includes Route Risk Engine workloads with optional live weather."
+        "Now includes Route Risk Engine workloads with optional live weather, "
+        "OSRM route generation, and road-event matching."
     ),
-    version="1.0.0",
+    version="1.2.0",
 )
 
 
@@ -74,26 +79,6 @@ class VectorBatchRequest(BaseModel):
 # ============================================================
 # ROUTE RISK ENGINE REQUEST MODELS
 # ============================================================
-#
-# Route segments support optional latitude and longitude values.
-#
-# Why coordinates matter:
-# - Weather APIs usually require latitude and longitude.
-# - Routing APIs return geographic points along a route.
-# - Road-condition data can be matched to nearby route coordinates.
-#
-# Weather modes:
-# - use_live_weather = false:
-#     The API uses manually provided weather from the request.
-#
-# - use_live_weather = true:
-#     The API ignores the manually provided weather for scoring and instead
-#     submits live-weather Celery tasks that fetch weather from Open-Meteo.
-#
-# Validation:
-# - Latitude must be between -90 and 90.
-# - Longitude must be between -180 and 180.
-
 
 class RouteWeatherData(BaseModel):
     temperature_f: Optional[float] = None
@@ -145,6 +130,66 @@ class RouteRiskJobRequest(BaseModel):
     )
 
     segments: List[RouteSegmentRequest] = Field(..., min_length=1)
+
+
+class RoadEventRequest(BaseModel):
+    event_id: str = "road-event"
+    event_type: str = Field(
+        default="construction",
+        description=(
+            "Road event type such as construction, work zone, road closure, icy, snowy, or wet."
+        ),
+    )
+    description: str = ""
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    source: str = "request-road-event"
+
+
+class RoutedRouteRiskJobRequest(BaseModel):
+    route_name: str = "Generated route risk job"
+
+    origin_label: str = "Origin"
+    origin_latitude: float = Field(..., ge=-90, le=90)
+    origin_longitude: float = Field(..., ge=-180, le=180)
+
+    destination_label: str = "Destination"
+    destination_latitude: float = Field(..., ge=-90, le=90)
+    destination_longitude: float = Field(..., ge=-180, le=180)
+
+    checkpoint_count: int = Field(
+        default=8,
+        ge=2,
+        le=50,
+        description="Number of sampled checkpoints to analyze along the generated route.",
+    )
+
+    road_condition: str = Field(
+        default="normal",
+        description=(
+            "Fallback route-wide road condition used when no road event matches a checkpoint."
+        ),
+    )
+
+    road_event_radius_miles: float = Field(
+        default=2.0,
+        ge=0.1,
+        le=25.0,
+        description="Search radius for matching supplied road events to route checkpoints.",
+    )
+
+    road_events: List[RoadEventRequest] = Field(
+        default_factory=list,
+        description=(
+            "Optional road events to match against generated route checkpoints. "
+            "This prepares the API for WZDx / 511 / DOT feed results."
+        ),
+    )
+
+    is_night: bool = Field(
+        default=False,
+        description="Whether the route should be scored as nighttime travel.",
+    )
 
 
 # ============================================================
@@ -237,6 +282,13 @@ def _build_route_risk_summary_response(job_id: str) -> Dict[str, Any]:
 
     This is separate from /results/{job_id}, which preserves the original
     orchestrator-style raw task result output.
+
+    For route-risk jobs, this response includes:
+    - route_blocked
+    - route_warning
+    - average_segment_score
+    - blocking_segments
+    - highest_risk_segment
     """
 
     job_data = _load_job(job_id)
@@ -267,20 +319,90 @@ def _build_route_risk_summary_response(job_id: str) -> Dict[str, Any]:
     else:
         route_status = "READY"
 
+    blocking_segments = aggregated_route_risk.get("blocking_segments", [])
+
     return {
         "job_id": job_id,
         "route_status": route_status,
         "route_name": metadata.get("route_name"),
         "origin": metadata.get("origin"),
         "destination": metadata.get("destination"),
+
+        # Route generation metadata.
         "segment_count": metadata.get("segment_count"),
         "coordinate_segment_count": metadata.get("coordinate_segment_count"),
         "weather_mode": metadata.get("weather_mode"),
+        "route_source": metadata.get("route_source"),
+        "distance_meters": metadata.get("distance_meters"),
+        "duration_seconds": metadata.get("duration_seconds"),
+        "geometry_point_count": metadata.get("geometry_point_count"),
+        "checkpoint_count": metadata.get("checkpoint_count"),
+
+        # Road-event metadata.
+        "road_event_count": metadata.get("road_event_count"),
+        "matched_road_event_checkpoint_count": metadata.get(
+            "matched_road_event_checkpoint_count"
+        ),
+
+        # Route-level risk summary.
         "route_risk_score": aggregated_route_risk["route_risk_score"],
         "route_risk_level": aggregated_route_risk["route_risk_level"],
+        "route_blocked": aggregated_route_risk.get("route_blocked", False),
+        "route_warning": aggregated_route_risk.get("route_warning"),
+        "average_segment_score": aggregated_route_risk.get("average_segment_score"),
         "highest_risk_segment": aggregated_route_risk["highest_risk_segment"],
+        "blocking_segments": blocking_segments,
+        "blocking_segment_count": len(blocking_segments),
+        "incomplete_task_count": aggregated_route_risk.get(
+            "incomplete_task_count",
+            0,
+        ),
         "summary": aggregated_route_risk["summary"],
     }
+
+
+def _build_segments_from_routed_checkpoints(
+    checkpoints: List[Dict[str, Any]],
+    road_condition: str,
+    is_night: bool,
+) -> List[Dict[str, Any]]:
+    """
+    Convert OSRM sampled checkpoints into route-risk segment dictionaries.
+
+    The generated segments intentionally match the structure used by the
+    existing manual route-risk endpoint so the same Celery task pipeline can
+    process them.
+    """
+
+    segments = []
+
+    for checkpoint in checkpoints:
+        segments.append(
+            {
+                "label": checkpoint.get("label", "Route checkpoint"),
+                "latitude": checkpoint["latitude"],
+                "longitude": checkpoint["longitude"],
+                "weather": {
+                    "temperature_f": 0,
+                    "wind_mph": 0,
+                    "condition": "ignored because live weather is enabled",
+                    "visibility_miles": None,
+                },
+                "road_condition": checkpoint.get("road_condition", road_condition),
+                "road_condition_source": checkpoint.get(
+                    "road_condition_source",
+                    "fallback",
+                ),
+                "matched_road_event": checkpoint.get("matched_road_event"),
+                "nearby_road_event_count": checkpoint.get(
+                    "nearby_road_event_count",
+                    0,
+                ),
+                "is_night": is_night,
+            }
+        )
+
+    return segments
 
 
 # ============================================================
@@ -468,15 +590,7 @@ def submit_route_risk_job(request: RouteRiskJobRequest) -> Dict[str, Any]:
     """
     Submit a distributed Route Risk Engine job.
 
-    Current version:
-    - Accepts route segments directly.
-    - Supports optional latitude and longitude values per segment.
-    - Supports manual weather mode and live weather mode.
-    - Submits one route-risk task per segment.
-    - Reuses the existing Redis job tracking system.
-    - Reuses the existing /job_status/{job_id} endpoint.
-    - Reuses the existing /results/{job_id} endpoint.
-    - Supports clean summary retrieval through /route_risk_summary/{job_id}.
+    This endpoint accepts route segments directly.
     """
 
     task_ids = []
@@ -537,26 +651,126 @@ def submit_route_risk_job(request: RouteRiskJobRequest) -> Dict[str, Any]:
     }
 
 
+@app.post("/submit_routed_route_risk_job")
+def submit_routed_route_risk_job(request: RoutedRouteRiskJobRequest) -> Dict[str, Any]:
+    """
+    Submit a routed live-weather Route Risk Engine job.
+
+    This endpoint:
+    - Receives origin and destination coordinates.
+    - Calls OSRM to generate a real route.
+    - Samples checkpoints along the route.
+    - Optionally matches supplied road events to checkpoints.
+    - Submits one live-weather Celery task per checkpoint.
+    - Reuses the existing Redis job tracking and summary endpoints.
+    """
+
+    try:
+        route = fetch_route_between_coordinates(
+            origin_latitude=request.origin_latitude,
+            origin_longitude=request.origin_longitude,
+            destination_latitude=request.destination_latitude,
+            destination_longitude=request.destination_longitude,
+            checkpoint_count=request.checkpoint_count,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "Failed to generate route from routing provider.",
+                "error": str(exc),
+            },
+        ) from exc
+
+    road_events = [event.model_dump() for event in request.road_events]
+
+    enriched_checkpoints = apply_road_conditions_to_checkpoints(
+        checkpoints=route["checkpoints"],
+        road_events=road_events,
+        radius_miles=request.road_event_radius_miles,
+        fallback_road_condition=request.road_condition,
+    )
+
+    matched_road_event_checkpoint_count = sum(
+        1
+        for checkpoint in enriched_checkpoints
+        if checkpoint.get("matched_road_event") is not None
+    )
+
+    segments = _build_segments_from_routed_checkpoints(
+        checkpoints=enriched_checkpoints,
+        road_condition=request.road_condition,
+        is_night=request.is_night,
+    )
+
+    task_ids = []
+
+    for index, segment in enumerate(segments, start=1):
+        task = live_weather_route_segment_risk_task.delay(
+            index,
+            segment,
+        )
+        task_ids.append(task.id)
+
+    origin_text = request.origin_label
+    destination_text = request.destination_label
+
+    job_id = _create_job(
+        workload="route_risk_segments",
+        task_ids=task_ids,
+        metadata={
+            "route_name": request.route_name,
+            "origin": origin_text,
+            "destination": destination_text,
+            "origin_latitude": request.origin_latitude,
+            "origin_longitude": request.origin_longitude,
+            "destination_latitude": request.destination_latitude,
+            "destination_longitude": request.destination_longitude,
+            "segment_count": len(segments),
+            "coordinate_segment_count": len(segments),
+            "weather_mode": "live",
+            "route_source": route["source"],
+            "distance_meters": route["distance_meters"],
+            "duration_seconds": route["duration_seconds"],
+            "geometry_point_count": route["geometry_point_count"],
+            "checkpoint_count": route["checkpoint_count"],
+            "fallback_road_condition": request.road_condition,
+            "road_event_radius_miles": request.road_event_radius_miles,
+            "road_event_count": len(road_events),
+            "matched_road_event_checkpoint_count": matched_road_event_checkpoint_count,
+            "is_night": request.is_night,
+            "prototype_stage": "osrm_routed_live_weather_road_event_segments",
+        },
+    )
+
+    return {
+        "message": "Routed live-weather route risk job submitted",
+        "job_id": job_id,
+        "task_count": len(task_ids),
+        "workload": "route_risk_segments",
+        "route_name": request.route_name,
+        "origin": origin_text,
+        "destination": destination_text,
+        "segment_count": len(segments),
+        "coordinate_segment_count": len(segments),
+        "weather_mode": "live",
+        "route_source": route["source"],
+        "distance_meters": route["distance_meters"],
+        "duration_seconds": route["duration_seconds"],
+        "geometry_point_count": route["geometry_point_count"],
+        "checkpoint_count": route["checkpoint_count"],
+        "road_event_count": len(road_events),
+        "matched_road_event_checkpoint_count": matched_road_event_checkpoint_count,
+        "summary_endpoint": f"/route_risk_summary/{job_id}",
+    }
+
+
 @app.get("/route_risk_summary/{job_id}")
 def route_risk_summary(job_id: str) -> Dict[str, Any]:
     """
     Return a clean user-facing route-risk summary.
 
     This endpoint is intentionally simpler than /results/{job_id}.
-
-    Use this when the user/demo should see:
-    - route name
-    - origin
-    - destination
-    - total segment count
-    - coordinate-enabled segment count
-    - weather mode
-    - route risk score
-    - route risk level
-    - highest-risk segment
-    - readable summary
-
-    Use /results/{job_id} when debugging or demonstrating raw Celery task output.
     """
 
     return _build_route_risk_summary_response(job_id)

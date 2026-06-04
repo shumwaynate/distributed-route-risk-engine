@@ -1,17 +1,21 @@
 """
 route_risk/testing/manual_routed_live_weather_test.py
 
-Manual test for combining routing, live weather, scoring, and aggregation.
+Manual test for combining routing, WZDx-style road-event feed normalization,
+road-event matching, live weather, scoring, and aggregation.
 
 Purpose:
 - Fetch a real route using OSRM.
 - Sample checkpoints along the route geometry.
+- Normalize WZDx-style road-event feed data.
+- Match normalized road events to nearby checkpoints.
+- Add road_condition values to affected checkpoints.
 - Fetch live weather for each checkpoint using Open-Meteo.
 - Score each checkpoint using the Route Risk Engine scoring logic.
 - Aggregate checkpoint results into a route-level risk summary.
 
-This test proves the Route Risk Engine concept before connecting generated
-routes to FastAPI and Celery.
+This test proves the Route Risk Engine concept before connecting live road-event
+feeds directly to FastAPI and Celery.
 
 This test does NOT require:
 - Redis
@@ -43,12 +47,19 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from route_risk.core.aggregation import aggregate_segment_results
 from route_risk.core.scoring import score_segment
+from route_risk.integrations.road_conditions_client import (
+    apply_road_conditions_to_checkpoints,
+)
+from route_risk.integrations.road_event_feed_client import (
+    build_sample_wzdx_like_feed,
+    normalize_wzdx_feature_collection,
+)
 from route_risk.integrations.routing_client import fetch_route_between_coordinates
 from route_risk.integrations.weather_client import fetch_weather_for_coordinate
 
 
 # ============================================================
-# ROUTED LIVE WEATHER TEST
+# ROUTED LIVE WEATHER + WZDX-STYLE ROAD EVENT TEST
 # ============================================================
 
 def print_section_title(title: str) -> None:
@@ -75,10 +86,14 @@ def build_segment_result_from_checkpoint(
 ) -> Dict[str, Any]:
     """
     Fetch live weather and score one routed checkpoint.
+
+    The checkpoint should already include road_condition data from the road
+    conditions matching layer.
     """
 
     latitude = checkpoint["latitude"]
     longitude = checkpoint["longitude"]
+    road_condition = checkpoint.get("road_condition", "normal")
 
     weather = fetch_weather_for_coordinate(
         latitude=latitude,
@@ -87,7 +102,7 @@ def build_segment_result_from_checkpoint(
 
     risk_result = score_segment(
         weather=weather,
-        road_condition="normal",
+        road_condition=road_condition,
         is_night=False,
     )
 
@@ -102,6 +117,10 @@ def build_segment_result_from_checkpoint(
         "latitude": latitude,
         "longitude": longitude,
         "weather": weather,
+        "road_condition": road_condition,
+        "road_condition_source": checkpoint.get("road_condition_source"),
+        "matched_road_event": checkpoint.get("matched_road_event"),
+        "nearby_road_event_count": checkpoint.get("nearby_road_event_count", 0),
         "risk_score": risk_result["risk_score"],
         "risk_level": risk_result["risk_level"],
         "factors": risk_result["factors"],
@@ -110,10 +129,11 @@ def build_segment_result_from_checkpoint(
 
 def run_routed_live_weather_test() -> None:
     """
-    Run a complete local route-risk flow using routing + live weather.
+    Run a complete local route-risk flow using routing, WZDx-style road events,
+    and live weather.
     """
 
-    print_section_title("ROUTED LIVE WEATHER ROUTE RISK TEST")
+    print_section_title("ROUTED LIVE WEATHER + WZDX-STYLE ROAD EVENT ROUTE RISK TEST")
 
     # Approximate Rexburg, Idaho.
     origin_latitude = 43.8231
@@ -146,14 +166,34 @@ def run_routed_live_weather_test() -> None:
     print_section_title("ROUTE SUMMARY")
     print_json_result(route_summary)
 
+    print_section_title("NORMALIZING WZDX-STYLE ROAD EVENT FEED")
+
+    sample_wzdx_feed = build_sample_wzdx_like_feed()
+
+    normalized_road_events = normalize_wzdx_feature_collection(sample_wzdx_feed)
+
+    print(json.dumps(normalized_road_events, indent=2))
+
+    print_section_title("MATCHING NORMALIZED ROAD EVENTS TO ROUTE CHECKPOINTS")
+
+    enriched_checkpoints = apply_road_conditions_to_checkpoints(
+        checkpoints=route["checkpoints"],
+        road_events=normalized_road_events,
+        radius_miles=1.0,
+        fallback_road_condition="normal",
+    )
+
+    print(json.dumps(enriched_checkpoints, indent=2))
+
     print_section_title("FETCHING LIVE WEATHER AND SCORING CHECKPOINTS")
 
     segment_results: List[Dict[str, Any]] = []
 
-    for checkpoint_number, checkpoint in enumerate(route["checkpoints"], start=1):
+    for checkpoint_number, checkpoint in enumerate(enriched_checkpoints, start=1):
         print(
             f"Scoring checkpoint {checkpoint_number}/{route['checkpoint_count']}: "
-            f"{checkpoint['latitude']}, {checkpoint['longitude']}"
+            f"{checkpoint['latitude']}, {checkpoint['longitude']} "
+            f"road_condition={checkpoint.get('road_condition')}"
         )
 
         segment_result = build_segment_result_from_checkpoint(
@@ -175,12 +215,13 @@ def run_routed_live_weather_test() -> None:
         "distance_meters": route["distance_meters"],
         "duration_seconds": route["duration_seconds"],
         "checkpoint_count": route["checkpoint_count"],
+        "normalized_road_event_count": len(normalized_road_events),
         "aggregated_route_risk": aggregate_result,
     }
 
     print_json_result(final_result)
 
-    print_section_title("END ROUTED LIVE WEATHER ROUTE RISK TEST")
+    print_section_title("END ROUTED LIVE WEATHER + WZDX-STYLE ROAD EVENT ROUTE RISK TEST")
 
 
 # ============================================================

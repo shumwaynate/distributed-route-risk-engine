@@ -213,13 +213,30 @@ def matrix_compute_task(task_id: int, matrix_size: int = 700) -> Dict[str, float
 # - Supports optional latitude and longitude values.
 # - Scores route segments independently.
 # - Preserves coordinates in results for future API integration.
-# - Adds first live weather worker task using Open-Meteo.
+# - Supports live weather using Open-Meteo.
+# - Preserves road-condition matching details for construction/closure events.
 #
 # Future stages:
-# - Add FastAPI option for live weather mode.
-# - Use coordinates to match road-condition data.
-# - Use routing APIs to generate route segment points.
+# - Add real WZDx / 511 / DOT road-event feed integrations.
+# - Use road-event matching to set road_condition per checkpoint.
+# - Use routing APIs to generate multiple candidate routes.
 # - Benchmark route-risk workloads across Docker worker containers.
+
+
+def _build_road_context_result(segment: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Extract road-condition context from a route segment.
+
+    This keeps manual segment tests, live-weather tasks, and routed/event-enriched
+    tasks returning a consistent result shape.
+    """
+
+    return {
+        "road_condition": segment.get("road_condition", "normal"),
+        "road_condition_source": segment.get("road_condition_source", "request"),
+        "matched_road_event": segment.get("matched_road_event"),
+        "nearby_road_event_count": segment.get("nearby_road_event_count", 0),
+    }
 
 
 @celery_app.task
@@ -235,13 +252,15 @@ def route_segment_risk_task(
     Each route segment can be processed independently, making it a good fit
     for distributed Celery workers.
 
-    Optional coordinates are preserved in the output so later stages can use
-    the same task result for weather, road-condition, and geospatial analysis.
+    Optional coordinates and road-event details are preserved in the output so
+    later stages can use the same task result for explanation and debugging.
     """
+
+    road_context = _build_road_context_result(segment)
 
     segment_result = score_segment(
         weather=segment.get("weather", {}),
-        road_condition=segment.get("road_condition", "normal"),
+        road_condition=road_context["road_condition"],
         is_night=segment.get("is_night", False),
     )
 
@@ -252,6 +271,7 @@ def route_segment_risk_task(
         "segment_label": segment.get("label", "Unnamed segment"),
         "latitude": segment.get("latitude"),
         "longitude": segment.get("longitude"),
+        **road_context,
         "risk_score": segment_result["risk_score"],
         "risk_level": segment_result["risk_level"],
         "factors": segment_result["factors"],
@@ -266,15 +286,16 @@ def live_weather_route_segment_risk_task(
     """
     Score a single route segment inside a Celery worker using live weather.
 
-    This is the first task that connects external API data into the distributed
-    route-risk worker pipeline.
+    This task connects external API data into the distributed route-risk worker
+    pipeline.
 
     Flow:
     - Receive route segment with latitude and longitude.
+    - Preserve road-condition and matched-event context if present.
     - Fetch live weather from Open-Meteo.
     - Normalize weather data.
     - Score the segment using the existing scoring function.
-    - Return coordinates, weather, and risk result.
+    - Return coordinates, weather, road context, and risk result.
 
     This task requires:
     - Internet access.
@@ -290,6 +311,8 @@ def live_weather_route_segment_risk_task(
             "live_weather_route_segment_risk_task requires both latitude and longitude."
         )
 
+    road_context = _build_road_context_result(segment)
+
     live_weather = fetch_weather_for_coordinate(
         latitude=float(latitude),
         longitude=float(longitude),
@@ -297,7 +320,7 @@ def live_weather_route_segment_risk_task(
 
     segment_result = score_segment(
         weather=live_weather,
-        road_condition=segment.get("road_condition", "normal"),
+        road_condition=road_context["road_condition"],
         is_night=segment.get("is_night", False),
     )
 
@@ -309,6 +332,7 @@ def live_weather_route_segment_risk_task(
         "latitude": latitude,
         "longitude": longitude,
         "weather": live_weather,
+        **road_context,
         "risk_score": segment_result["risk_score"],
         "risk_level": segment_result["risk_level"],
         "factors": segment_result["factors"],

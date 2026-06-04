@@ -1,46 +1,27 @@
 """
 route_risk/core/aggregation.py
 
-Aggregation helpers for the Route Risk Engine.
+Aggregation logic for Route Risk Engine task results.
 
 Purpose:
-- Combine multiple route segment task results into one route-level result.
-- Preserve the distributed design where each segment can be scored separately.
-- Prepare for future route comparison, such as safest, fastest, and balanced routes.
+- Combine completed route segment results into one route-level result.
+- Preserve the raw segment results for debugging and explanation.
+- Identify the highest-risk segment.
+- Escalate the route when a blocking condition, such as a road closure, is found.
 
-This file belongs to the Route Risk Engine core logic.
+Important design decision:
+A route should not be judged only by average score.
 
-It does not replace the original orchestrator.
-It helps turn distributed segment results into a user-facing route summary.
+Example:
+- 7 checkpoints are safe.
+- 1 checkpoint is a road closure.
+
+A simple average may look low, but the route is not actually usable.
+For that reason, blocking events override the average route score.
 """
 
 import json
-import sys
-from pathlib import Path
 from typing import Any, Dict, List
-
-
-# ============================================================
-# IMPORT PATH SETUP FOR LOCAL MANUAL TESTING
-# ============================================================
-#
-# Why this exists:
-# When running this file directly like:
-#
-#     python .\route_risk\core\aggregation.py
-#
-# Python may only look inside the route_risk/core folder instead of the full
-# project root. This section makes sure the project root is available so
-# imports like "from route_risk.core.scoring import classify_risk" work.
-#
-# This is only for local manual testing convenience.
-# It does not change the original orchestrator architecture.
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 
 from route_risk.core.scoring import classify_risk
 
@@ -49,82 +30,166 @@ from route_risk.core.scoring import classify_risk
 # ROUTE RISK ENGINE AGGREGATION LOGIC
 # ============================================================
 
-def aggregate_segment_results(
-    segment_results: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+def aggregate_job_results(task_results: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Combine multiple route segment risk results into one route-level summary.
+    Aggregate Celery task result wrappers into one route-level risk result.
 
-    Expected input:
-        [
-            {
-                "task_id": 1,
-                "workload": "route_segment_risk",
-                "segment_label": "Rexburg to Rigby",
+    Expected task result shape:
+        {
+            "task_id": "...",
+            "status": "SUCCESS",
+            "result": {
+                "segment_label": "...",
                 "risk_score": 70,
                 "risk_level": "High",
-                "factors": [
-                    "freezing temperature",
-                    "snow",
-                    "nighttime travel"
-                ]
+                ...
             },
-            ...
-        ]
-
-    Returns:
-        {
-            "route_risk_score": 55,
-            "route_risk_level": "Moderate",
-            "highest_risk_segment": {...},
-            "segment_results": [...],
-            "summary": "..."
+            "error": None
         }
+
+    This function only aggregates successful task results.
+    Pending, failed, and incomplete task results are ignored for scoring.
+    """
+
+    successful_segment_results = []
+
+    incomplete_or_failed_results = []
+
+    for task_result in task_results:
+        if task_result.get("status") == "SUCCESS" and task_result.get("result"):
+            successful_segment_results.append(task_result["result"])
+        else:
+            incomplete_or_failed_results.append(task_result)
+
+    aggregated_result = aggregate_segment_results(successful_segment_results)
+
+    if incomplete_or_failed_results:
+        aggregated_result["incomplete_task_count"] = len(incomplete_or_failed_results)
+        aggregated_result["summary"] = (
+            aggregated_result["summary"]
+            + f" Note: {len(incomplete_or_failed_results)} task(s) were not complete "
+            "when this summary was generated."
+        )
+    else:
+        aggregated_result["incomplete_task_count"] = 0
+
+    return aggregated_result
+
+
+def aggregate_segment_results(segment_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Aggregate already-completed segment results into a route-level result.
+
+    Route-level logic:
+    - Average score is still calculated.
+    - Highest-risk segment is still identified.
+    - If any segment has a road closure, the route is marked as blocked.
+    - A blocked route gets route_risk_score = 100 and route_risk_level = "Blocked".
+
+    This makes the app behave more like a real route recommendation system.
+    One closed segment should stop the route, not disappear into an average.
     """
 
     if not segment_results:
         return {
             "route_risk_score": 0,
             "route_risk_level": "Low",
+            "route_blocked": False,
+            "route_warning": None,
             "highest_risk_segment": None,
+            "blocking_segments": [],
             "segment_results": [],
-            "summary": "No completed route segment results were available.",
+            "summary": "No completed segment results were available to aggregate.",
         }
-
-    total_score = sum(
-        int(segment.get("risk_score", 0))
-        for segment in segment_results
-    )
-
-    average_score = round(total_score / len(segment_results))
 
     highest_risk_segment = max(
         segment_results,
         key=lambda segment: int(segment.get("risk_score", 0)),
     )
 
-    summary = build_aggregate_summary(
+    total_score = sum(int(segment.get("risk_score", 0)) for segment in segment_results)
+    average_score = round(total_score / len(segment_results))
+
+    blocking_segments = find_blocking_segments(segment_results)
+
+    if blocking_segments:
+        route_risk_score = 100
+        route_risk_level = "Blocked"
+        route_blocked = True
+        route_warning = (
+            "This route has at least one blocking road event and should not be "
+            "recommended without rerouting."
+        )
+    else:
+        route_risk_score = average_score
+        route_risk_level = classify_risk(route_risk_score)
+        route_blocked = False
+        route_warning = None
+
+    summary = build_aggregation_summary(
         segment_results=segment_results,
-        route_score=average_score,
+        route_risk_score=route_risk_score,
+        route_risk_level=route_risk_level,
+        route_blocked=route_blocked,
         highest_risk_segment=highest_risk_segment,
+        blocking_segments=blocking_segments,
+        average_score=average_score,
     )
 
     return {
-        "route_risk_score": average_score,
-        "route_risk_level": classify_risk(average_score),
+        "route_risk_score": route_risk_score,
+        "route_risk_level": route_risk_level,
+        "route_blocked": route_blocked,
+        "route_warning": route_warning,
+        "average_segment_score": average_score,
         "highest_risk_segment": highest_risk_segment,
+        "blocking_segments": blocking_segments,
         "segment_results": segment_results,
         "summary": summary,
     }
 
 
-def build_aggregate_summary(
+def find_blocking_segments(segment_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Find segments that should block the route.
+
+    Current blocking logic:
+    - road_condition == "closed"
+    - factors include "road closure"
+
+    This keeps the logic flexible because some providers may express closure
+    through normalized road_condition, while others may only show it in factors.
+    """
+
+    blocking_segments = []
+
+    for segment in segment_results:
+        road_condition = str(segment.get("road_condition", "")).lower()
+        factors = [
+            str(factor).lower()
+            for factor in segment.get("factors", [])
+        ]
+
+        has_closed_condition = road_condition == "closed"
+        has_road_closure_factor = "road closure" in factors
+
+        if has_closed_condition or has_road_closure_factor:
+            blocking_segments.append(segment)
+
+    return blocking_segments
+
+
+def build_aggregation_summary(
     segment_results: List[Dict[str, Any]],
-    route_score: int,
+    route_risk_score: int,
+    route_risk_level: str,
+    route_blocked: bool,
     highest_risk_segment: Dict[str, Any],
+    blocking_segments: List[Dict[str, Any]],
+    average_score: int,
 ) -> str:
     """
-    Build a human-readable route summary from distributed segment results.
+    Build a human-readable route risk summary.
     """
 
     all_factors: List[str] = []
@@ -134,67 +199,44 @@ def build_aggregate_summary(
 
     unique_factors = sorted(set(all_factors))
 
-    highest_label = highest_risk_segment.get("segment_label", "Unknown segment")
-    highest_score = highest_risk_segment.get("risk_score", 0)
-    highest_level = highest_risk_segment.get("risk_level", "Unknown")
+    if route_blocked:
+        blocking_labels = [
+            str(segment.get("segment_label", "Unnamed segment"))
+            for segment in blocking_segments
+        ]
+
+        blocking_text = ", ".join(blocking_labels)
+
+        if unique_factors:
+            factor_text = ", ".join(unique_factors)
+        else:
+            factor_text = "road closure"
+
+        return (
+            "This route is blocked and should not be recommended without rerouting. "
+            f"Blocking segment(s): {blocking_text}. "
+            f"The highest-risk segment is "
+            f"{highest_risk_segment.get('segment_label', 'Unnamed segment')} "
+            f"with a score of {highest_risk_segment.get('risk_score')} "
+            f"({highest_risk_segment.get('risk_level')}). "
+            f"The route-level score was escalated to {route_risk_score} "
+            f"from an average segment score of {average_score}. "
+            f"The main risk factors are: {factor_text}."
+        )
 
     if not unique_factors:
-        return (
-            f"This route has a risk score of {route_score}. "
-            "No major risk factors were detected in the completed segment results."
-        )
+        return "This route has a risk score of 0. No major risk factors were detected in the completed segment results."
 
     factor_text = ", ".join(unique_factors)
 
     return (
-        f"This route has an overall risk score of {route_score}. "
-        f"The highest-risk segment is {highest_label} with a score of "
-        f"{highest_score} ({highest_level}). "
+        f"This route has an overall risk score of {route_risk_score}. "
+        f"The highest-risk segment is "
+        f"{highest_risk_segment.get('segment_label', 'Unnamed segment')} "
+        f"with a score of {highest_risk_segment.get('risk_score')} "
+        f"({highest_risk_segment.get('risk_level')}). "
         f"The main risk factors are: {factor_text}."
     )
-
-
-def extract_successful_segment_results(
-    job_results: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    """
-    Extract successful route segment results from the existing /results format.
-
-    This helper filters out:
-    - failed tasks
-    - pending tasks
-    - non-route-segment tasks
-    """
-
-    successful_segments = []
-
-    for task_result in job_results:
-        if task_result.get("status") != "SUCCESS":
-            continue
-
-        result = task_result.get("result")
-
-        if not isinstance(result, dict):
-            continue
-
-        if result.get("workload") != "route_segment_risk":
-            continue
-
-        successful_segments.append(result)
-
-    return successful_segments
-
-
-def aggregate_job_results(
-    job_results: List[Dict[str, Any]],
-) -> Dict[str, Any]:
-    """
-    Aggregate route risk segment results from the existing /results task format.
-    """
-
-    segment_results = extract_successful_segment_results(job_results)
-
-    return aggregate_segment_results(segment_results)
 
 
 # ============================================================
@@ -212,47 +254,53 @@ def print_section_title(title: str) -> None:
 
 
 if __name__ == "__main__":
-    sample_job_results = [
+    print_section_title("ROUTE RISK AGGREGATION MANUAL TEST")
+
+    sample_segment_results = [
         {
-            "task_id": "fake-celery-task-1",
-            "status": "SUCCESS",
-            "result": {
-                "task_id": 1,
-                "workload": "route_segment_risk",
-                "segment_label": "Rexburg to Rigby",
-                "risk_score": 70,
-                "risk_level": "High",
-                "factors": [
-                    "freezing temperature",
-                    "snow",
-                    "nighttime travel",
-                ],
-            },
-            "error": None,
+            "task_id": 1,
+            "workload": "route_segment_risk",
+            "weather_mode": "live",
+            "segment_label": "Route checkpoint 1",
+            "latitude": 43.8231,
+            "longitude": -111.792468,
+            "road_condition": "normal",
+            "risk_score": 0,
+            "risk_level": "Low",
+            "factors": [],
         },
         {
-            "task_id": "fake-celery-task-2",
-            "status": "SUCCESS",
-            "result": {
-                "task_id": 2,
-                "workload": "route_segment_risk",
-                "segment_label": "Rigby to Idaho Falls",
-                "risk_score": 40,
-                "risk_level": "Moderate",
-                "factors": [
-                    "high wind",
-                    "nighttime travel",
-                    "construction",
-                ],
-            },
-            "error": None,
+            "task_id": 2,
+            "workload": "route_segment_risk",
+            "weather_mode": "live",
+            "segment_label": "Route checkpoint 2",
+            "latitude": 43.59723,
+            "longitude": -111.965417,
+            "road_condition": "construction",
+            "risk_score": 15,
+            "risk_level": "Low",
+            "factors": [
+                "construction",
+            ],
+        },
+        {
+            "task_id": 3,
+            "workload": "route_segment_risk",
+            "weather_mode": "live",
+            "segment_label": "Route checkpoint 3",
+            "latitude": 43.540506,
+            "longitude": -112.007668,
+            "road_condition": "closed",
+            "risk_score": 100,
+            "risk_level": "High",
+            "factors": [
+                "road closure",
+            ],
         },
     ]
 
-    print_section_title("ROUTE RISK AGGREGATION MANUAL TEST")
+    result = aggregate_segment_results(sample_segment_results)
 
-    aggregate_result = aggregate_job_results(sample_job_results)
-
-    print(json.dumps(aggregate_result, indent=2))
+    print(json.dumps(result, indent=2))
 
     print_section_title("END ROUTE RISK AGGREGATION MANUAL TEST")
