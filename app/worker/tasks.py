@@ -129,7 +129,10 @@ def _dot_product(a: List[float], b: List[float]) -> float:
 
 
 @celery_app.task
-def vector_similarity_task(task_id: int, vector_size: int = 1000) -> Dict[str, float]:
+def vector_similarity_task(
+    task_id: int,
+    vector_size: int = 1000,
+) -> Dict[str, float]:
     """
     AI-style deterministic vector similarity workload.
     """
@@ -177,7 +180,10 @@ def _matrix_iterations_for_size(matrix_size: int) -> int:
 
 
 @celery_app.task
-def matrix_compute_task(task_id: int, matrix_size: int = 700) -> Dict[str, float]:
+def matrix_compute_task(
+    task_id: int,
+    matrix_size: int = 700,
+) -> Dict[str, float]:
     """
     AI-style deterministic NumPy matrix compute workload.
     """
@@ -209,18 +215,15 @@ def matrix_compute_task(task_id: int, matrix_size: int = 700) -> Dict[str, float
 # These tasks belong to the Route Risk / Driving Recommendation Engine.
 #
 # Current stage:
-# - Uses local/manual route data.
+# - Supports manual and live-weather route-risk tasks.
 # - Supports optional latitude and longitude values.
 # - Scores route segments independently.
-# - Preserves coordinates in results for future API integration.
-# - Supports live weather using Open-Meteo.
-# - Preserves road-condition matching details for construction/closure events.
+# - Preserves coordinates in results.
+# - Preserves road-condition matching details.
+# - Preserves route identity for multi-route comparison.
 #
-# Future stages:
-# - Add real WZDx / 511 / DOT road-event feed integrations.
-# - Use road-event matching to set road_condition per checkpoint.
-# - Use routing APIs to generate multiple candidate routes.
-# - Benchmark route-risk workloads across Docker worker containers.
+# Each route checkpoint can be processed independently, making the workload
+# suitable for distributed Celery workers.
 
 
 def _build_road_context_result(segment: Dict[str, Any]) -> Dict[str, Any]:
@@ -233,9 +236,32 @@ def _build_road_context_result(segment: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "road_condition": segment.get("road_condition", "normal"),
-        "road_condition_source": segment.get("road_condition_source", "request"),
+        "road_condition_source": segment.get(
+            "road_condition_source",
+            "request",
+        ),
         "matched_road_event": segment.get("matched_road_event"),
-        "nearby_road_event_count": segment.get("nearby_road_event_count", 0),
+        "nearby_road_event_count": segment.get(
+            "nearby_road_event_count",
+            0,
+        ),
+    }
+
+
+def _build_route_context_result(segment: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Extract optional multi-route identity information from a segment.
+
+    Existing single-route jobs may not include these values. In that case,
+    both fields remain None and existing behavior is preserved.
+
+    Multi-route ORS jobs will provide these fields so completed checkpoint
+    results can be grouped back into the correct route.
+    """
+
+    return {
+        "route_id": segment.get("route_id"),
+        "route_label": segment.get("route_label"),
     }
 
 
@@ -252,11 +278,12 @@ def route_segment_risk_task(
     Each route segment can be processed independently, making it a good fit
     for distributed Celery workers.
 
-    Optional coordinates and road-event details are preserved in the output so
-    later stages can use the same task result for explanation and debugging.
+    Optional coordinates, route identity, and road-event details are preserved
+    in the output for explanation, grouping, and debugging.
     """
 
     road_context = _build_road_context_result(segment)
+    route_context = _build_route_context_result(segment)
 
     segment_result = score_segment(
         weather=segment.get("weather", {}),
@@ -268,6 +295,7 @@ def route_segment_risk_task(
         "task_id": task_id,
         "workload": "route_segment_risk",
         "weather_mode": "manual",
+        **route_context,
         "segment_label": segment.get("label", "Unnamed segment"),
         "latitude": segment.get("latitude"),
         "longitude": segment.get("longitude"),
@@ -286,16 +314,13 @@ def live_weather_route_segment_risk_task(
     """
     Score a single route segment inside a Celery worker using live weather.
 
-    This task connects external API data into the distributed route-risk worker
-    pipeline.
-
     Flow:
-    - Receive route segment with latitude and longitude.
-    - Preserve road-condition and matched-event context if present.
+    - Receive a route segment with latitude and longitude.
+    - Preserve route identity and road-condition context.
     - Fetch live weather from Open-Meteo.
     - Normalize weather data.
     - Score the segment using the existing scoring function.
-    - Return coordinates, weather, road context, and risk result.
+    - Return route identity, coordinates, weather, road context, and risk result.
 
     This task requires:
     - Internet access.
@@ -308,10 +333,12 @@ def live_weather_route_segment_risk_task(
 
     if latitude is None or longitude is None:
         raise ValueError(
-            "live_weather_route_segment_risk_task requires both latitude and longitude."
+            "live_weather_route_segment_risk_task requires both "
+            "latitude and longitude."
         )
 
     road_context = _build_road_context_result(segment)
+    route_context = _build_route_context_result(segment)
 
     live_weather = fetch_weather_for_coordinate(
         latitude=float(latitude),
@@ -328,6 +355,7 @@ def live_weather_route_segment_risk_task(
         "task_id": task_id,
         "workload": "route_segment_risk",
         "weather_mode": "live",
+        **route_context,
         "segment_label": segment.get("label", "Unnamed segment"),
         "latitude": latitude,
         "longitude": longitude,
@@ -348,8 +376,8 @@ def route_risk_summary_task(
     Score a full route inside a Celery worker.
 
     This task is retained for direct testing and early prototype comparisons.
-    The main distributed API route currently uses one route_segment_risk_task
-    per segment.
+    The main distributed API route currently uses one route segment task per
+    checkpoint.
     """
 
     route_result = score_route(segments)
