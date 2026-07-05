@@ -647,13 +647,13 @@
 
             <div class="control-grid">
                 <div class="field">
-                    <label for="stateCode">511 state feed</label>
-                    <select id="stateCode">
-                        <option value="NV" selected>Nevada</option>
-                        <option value="ID">Idaho</option>
-                        <option value="UT">Utah</option>
-                        <option value="AZ">Arizona</option>
-                    </select>
+                    <label for="stateFeedMode">511 state feeds</label>
+                    <input
+                        id="stateFeedMode"
+                        type="text"
+                        value="Automatically detected from route"
+                        disabled
+                    >
                 </div>
 
                 <div class="field">
@@ -760,6 +760,7 @@
         let destinationMarker = null;
         let routeLayers = [];
         let activeRouteIndex = null;
+        let detectedStateCodesForCurrentJob = [];
 
         const originValue = document.getElementById("originValue");
         const destinationValue = document.getElementById("destinationValue");
@@ -771,6 +772,7 @@
         const resultsPanel = document.getElementById("resultsPanel");
         const routeGrid = document.getElementById("routeGrid");
         const eventCount = document.getElementById("eventCount");
+        const stateFeedMode = document.getElementById("stateFeedMode");
 
         function formatCoordinate(point) {
             return `${point.lat.toFixed(6)}, ${point.lng.toFixed(6)}`;
@@ -807,6 +809,8 @@
             resultsPanel.classList.add("hidden");
             routeGrid.innerHTML = "";
             progressFill.style.width = "0%";
+            detectedStateCodesForCurrentJob = [];
+            stateFeedMode.value = "Automatically detected from route";
         }
 
         map.on("click", (event) => {
@@ -878,14 +882,85 @@
         }
 
         async function readJsonResponse(response) {
-            const payload = await response.json().catch(() => ({}));
+            const rawBody = await response.text();
+
+            let payload = rawBody;
+
+            if (rawBody.trim()) {
+                try {
+                    payload = JSON.parse(rawBody);
+                } catch {
+                    payload = rawBody.trim();
+                }
+            }
+
+            function extractErrorMessage(value) {
+                if (value === null || value === undefined) {
+                    return "";
+                }
+
+                if (typeof value === "string") {
+                    const trimmedValue = value.trim();
+
+                    if (
+                        trimmedValue.startsWith("{") ||
+                        trimmedValue.startsWith("[")
+                    ) {
+                        try {
+                            return extractErrorMessage(
+                                JSON.parse(trimmedValue)
+                            );
+                        } catch {
+                            return trimmedValue;
+                        }
+                    }
+
+                    return trimmedValue;
+                }
+
+                if (Array.isArray(value)) {
+                    for (const item of value) {
+                        const message = extractErrorMessage(item);
+
+                        if (message) {
+                            return message;
+                        }
+                    }
+
+                    return "";
+                }
+
+                if (typeof value === "object") {
+                    const preferredKeys = [
+                        "message",
+                        "detail",
+                        "error",
+                        "raw_response",
+                    ];
+
+                    for (const key of preferredKeys) {
+                        if (key in value) {
+                            const message = extractErrorMessage(
+                                value[key]
+                            );
+
+                            if (message) {
+                                return message;
+                            }
+                        }
+                    }
+                }
+
+                return "";
+            }
 
             if (!response.ok) {
-                const detail = payload.detail ?? payload;
-                const message = typeof detail === "string"
-                    ? detail
-                    : JSON.stringify(detail);
-                throw new Error(message || `Request failed with status ${response.status}`);
+                const message = extractErrorMessage(payload);
+
+                throw new Error(
+                    message ||
+                    `The request failed with status ${response.status}.`
+                );
             }
 
             return payload;
@@ -1410,8 +1485,21 @@
                     ? ` · ${duplicateRouteCount} near-duplicate route${duplicateRouteCount === 1 ? "" : "s"} removed`
                     : "";
 
+            const resultStateCodes = Array.isArray(result.state_codes)
+                ? result.state_codes
+                : detectedStateCodesForCurrentJob;
+
+            const resultStateText = resultStateCodes.length > 0
+                ? resultStateCodes.join(", ")
+                : "None";
+
+            stateFeedMode.value = resultStateCodes.length > 0
+                ? resultStateCodes.join(", ")
+                : "No supported state feeds detected";
+
             eventCount.textContent =
-                `${result.live_state_event_count ?? 0} live state events loaded${routeCountText}`;
+                `${result.live_state_event_count ?? 0} live state events loaded` +
+                ` · Feeds: ${resultStateText}${routeCountText}`;
 
             const allBounds = [];
 
@@ -1552,11 +1640,12 @@
             clearRouteLayers();
             resultsPanel.classList.add("hidden");
             routeGrid.innerHTML = "";
+            detectedStateCodesForCurrentJob = [];
+            stateFeedMode.value = "Detecting from generated routes…";
             updateStatus("Submitting the three-route comparison job…", 0);
 
             const checkpointCount = Number(document.getElementById("checkpointCount").value);
             const radiusMiles = Number(document.getElementById("radiusMiles").value);
-            const stateCode = document.getElementById("stateCode").value;
             const isNight = document.getElementById("nightMode").value === "true";
 
             const requestBody = {
@@ -1572,7 +1661,7 @@
                 share_factor: 0.8,
                 weight_factor: 2.5,
                 use_live_state_events: true,
-                state_codes: [stateCode],
+                state_codes: [],
                 road_condition: "normal",
                 road_event_radius_miles: radiusMiles,
                 road_events: [],
@@ -1589,8 +1678,23 @@
                 });
 
                 const job = await readJsonResponse(submitResponse);
+                const detectedStates = Array.isArray(job.state_codes)
+                    ? job.state_codes
+                    : [];
+
+                detectedStateCodesForCurrentJob = [...detectedStates];
+
+                const stateText = detectedStates.length > 0
+                    ? detectedStates.join(", ")
+                    : "no supported state feeds";
+
+                stateFeedMode.value = detectedStates.length > 0
+                    ? detectedStates.join(", ")
+                    : "No supported state feeds detected";
+
                 updateStatus(
-                    `Created ${job.route_candidate_count ?? 3} route candidates and queued the checkpoint work.`,
+                    `Created ${job.route_candidate_count ?? 3} route candidates. ` +
+                    `Detected ${stateText} and queued the checkpoint work.`,
                     0,
                 );
 
@@ -1605,6 +1709,11 @@
                 renderResults(result);
             } catch (error) {
                 console.error(error);
+
+                if (detectedStateCodesForCurrentJob.length === 0) {
+                    stateFeedMode.value = "State feeds not determined";
+                }
+
                 updateStatus(`Error: ${error.message}`, 0);
             } finally {
                 setBusy(false);

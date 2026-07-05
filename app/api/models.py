@@ -142,7 +142,9 @@ class RouteComparisonJobRequest(RoutedRouteRiskJobRequest):
     state_codes: List[str] = Field(
         default_factory=list,
         description=(
-            "Two-letter state codes whose 511 event clients should be called. "
-            "Only these states are loaded. Example: ['NV']."
+            "Optional two-letter state codes whose 511 clients should be "
+            "called. When empty and live state events are enabled, supported "
+            "states are detected automatically from the generated route "
+            "geometry. Explicit codes act as a manual override."
         ),
     )

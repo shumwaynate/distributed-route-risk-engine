@@ -1,0 +1,1545 @@
+\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta
+    name="description"
+    content="Instructor-facing verification walkthrough for the Distributed Route Risk Engine."
+  >
+  <title>Distributed Route Risk Engine | Final Verification Walkthrough</title>
+
+  <style>
+    :root {
+      --navy: #102f4c;
+      --navy-light: #1b5279;
+      --orange: #df6f2b;
+      --orange-light: #fff0e5;
+      --green: #247558;
+      --green-light: #e9f6ef;
+      --yellow: #9a6a12;
+      --yellow-light: #fff7dc;
+      --red: #a53f3f;
+      --red-light: #fdecec;
+      --ink: #162235;
+      --muted: #5d6a7c;
+      --background: #f3f6fa;
+      --surface: #ffffff;
+      --border: #d8e0e9;
+      --shadow: 0 18px 44px rgba(16, 47, 76, 0.09);
+      --radius: 18px;
+      --page-width: 1180px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--ink);
+      font-family:
+        Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .page-shell {
+      width: min(calc(100% - 38px), var(--page-width));
+      margin-inline: auto;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 76px 0 62px;
+      background:
+        radial-gradient(circle at 88% 18%, rgba(223, 111, 43, 0.35), transparent 28%),
+        linear-gradient(135deg, #0d2941, #164663 70%, #1e5d7c);
+      color: white;
+    }
+
+    .hero::after {
+      position: absolute;
+      right: -130px;
+      bottom: -230px;
+      width: 500px;
+      height: 500px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 50%;
+      content: "";
+    }
+
+    .hero-layout {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+      align-items: end;
+      gap: 44px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--orange);
+      font-size: 0.77rem;
+      font-weight: 850;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .hero .eyebrow {
+      color: #ffb384;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      max-width: 760px;
+      margin-bottom: 14px;
+      font-size: clamp(2.45rem, 6vw, 4.7rem);
+      line-height: 1.02;
+      letter-spacing: -0.05em;
+    }
+
+    h2 {
+      margin-bottom: 0;
+      font-size: clamp(1.75rem, 3vw, 2.65rem);
+      line-height: 1.15;
+      letter-spacing: -0.035em;
+    }
+
+    h3 {
+      margin-bottom: 8px;
+      font-size: 1.08rem;
+    }
+
+    .hero-copy {
+      max-width: 760px;
+      margin-bottom: 0;
+      color: rgba(255, 255, 255, 0.78);
+      font-size: 1.08rem;
+    }
+
+    .hero-status {
+      display: grid;
+      gap: 12px;
+      padding: 22px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.09);
+      backdrop-filter: blur(9px);
+    }
+
+    .hero-status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      color: rgba(255, 255, 255, 0.82);
+    }
+
+    .hero-status-row strong {
+      color: white;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 11px;
+      border-radius: 999px;
+      background: rgba(117, 231, 172, 0.16);
+      color: #9af0c4;
+      font-size: 0.79rem;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #75e7ac;
+      box-shadow: 0 0 0 5px rgba(117, 231, 172, 0.12);
+    }
+
+    .quick-nav {
+      position: sticky;
+      z-index: 10;
+      top: 0;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(12px);
+    }
+
+    .quick-nav-inner {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 12px 0;
+    }
+
+    .quick-nav a {
+      flex: 0 0 auto;
+      padding: 8px 12px;
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 0.86rem;
+      font-weight: 750;
+      text-decoration: none;
+    }
+
+    .quick-nav a:hover,
+    .quick-nav a:focus-visible {
+      background: var(--orange-light);
+      color: var(--orange);
+      outline: none;
+    }
+
+    main {
+      padding-bottom: 72px;
+    }
+
+    section {
+      padding-top: 68px;
+    }
+
+    .section-heading {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 0.78fr);
+      align-items: end;
+      gap: 42px;
+      margin-bottom: 27px;
+    }
+
+    .section-description {
+      margin-bottom: 2px;
+      color: var(--muted);
+    }
+
+    .launch-grid,
+    .summary-grid,
+    .walkthrough-grid,
+    .nice-grid {
+      display: grid;
+      gap: 18px;
+    }
+
+    .launch-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .summary-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .walkthrough-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .nice-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .card {
+      padding: 25px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .card p:last-child {
+      margin-bottom: 0;
+    }
+
+    .launch-card {
+      display: flex;
+      min-height: 230px;
+      flex-direction: column;
+    }
+
+    .number {
+      display: grid;
+      width: 39px;
+      height: 39px;
+      margin-bottom: 24px;
+      place-items: center;
+      border-radius: 12px;
+      background: var(--navy);
+      color: white;
+      font-weight: 900;
+    }
+
+    .command {
+      display: block;
+      overflow-x: auto;
+      margin-top: auto;
+      padding: 13px 15px;
+      border-radius: 11px;
+      background: #101b28;
+      color: #ffba8d;
+      font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+      font-size: 0.83rem;
+      white-space: nowrap;
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 11px;
+      margin-top: 22px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 10px 16px;
+      border: 0;
+      border-radius: 11px;
+      background: var(--navy);
+      color: white;
+      font-weight: 800;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .button:hover,
+    .button:focus-visible {
+      background: var(--navy-light);
+      outline: 3px solid rgba(27, 82, 121, 0.18);
+    }
+
+    .button-secondary {
+      border: 1px solid var(--border);
+      background: white;
+      color: var(--navy);
+    }
+
+    .button-secondary:hover,
+    .button-secondary:focus-visible {
+      background: var(--orange-light);
+      color: var(--orange);
+    }
+
+    .summary-card {
+      min-height: 165px;
+    }
+
+    .summary-label {
+      margin-bottom: 24px;
+      color: var(--muted);
+      font-size: 0.75rem;
+      font-weight: 850;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .summary-value {
+      margin-bottom: 4px;
+      color: var(--navy);
+      font-size: clamp(2rem, 4vw, 3rem);
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: -0.05em;
+    }
+
+    .summary-note {
+      color: var(--muted);
+      font-size: 0.91rem;
+    }
+
+    .requirement-card {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .requirement-card::before {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 5px;
+      background: var(--orange);
+      content: "";
+    }
+
+    .requirement-top {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 13px;
+    }
+
+    .requirement-code {
+      color: var(--orange);
+      font-size: 0.78rem;
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .badge {
+      flex: 0 0 auto;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: var(--green-light);
+      color: var(--green);
+      font-size: 0.72rem;
+      font-weight: 900;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .evidence-list,
+    .step-list {
+      margin: 14px 0 0;
+      padding-left: 20px;
+      color: var(--muted);
+    }
+
+    .evidence-list li,
+    .step-list li {
+      margin-bottom: 7px;
+    }
+
+    .acceptance-check {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-top: 19px;
+      padding-top: 17px;
+      border-top: 1px solid var(--border);
+      color: var(--ink);
+      font-weight: 750;
+    }
+
+    .acceptance-check input {
+      width: 20px;
+      height: 20px;
+      margin-top: 2px;
+      accent-color: var(--green);
+      cursor: pointer;
+    }
+
+    .nice-card {
+      min-height: 200px;
+    }
+
+    .nice-card.confirmed {
+      border-top: 5px solid var(--green);
+    }
+
+    .nice-card.partial {
+      border-top: 5px solid var(--yellow);
+    }
+
+    .nice-card.optional {
+      border-top: 5px solid var(--border);
+    }
+
+    .nice-status {
+      display: inline-block;
+      margin-bottom: 14px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 900;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .confirmed .nice-status {
+      background: var(--green-light);
+      color: var(--green);
+    }
+
+    .partial .nice-status {
+      background: var(--yellow-light);
+      color: var(--yellow);
+    }
+
+    .optional .nice-status {
+      background: #eef1f5;
+      color: var(--muted);
+    }
+
+    .demo-panel {
+      display: grid;
+      grid-template-columns: minmax(0, 1.18fr) minmax(300px, 0.82fr);
+      gap: 22px;
+    }
+
+    .demo-script {
+      counter-reset: demo-step;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .demo-script li {
+      position: relative;
+      min-height: 68px;
+      padding: 0 0 24px 58px;
+      color: var(--muted);
+    }
+
+    .demo-script li::before {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: grid;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--orange-light);
+      color: var(--orange);
+      content: counter(demo-step);
+      counter-increment: demo-step;
+      font-weight: 900;
+    }
+
+    .demo-script li::after {
+      position: absolute;
+      top: 42px;
+      bottom: 3px;
+      left: 18px;
+      width: 2px;
+      background: var(--border);
+      content: "";
+    }
+
+    .demo-script li:last-child::after {
+      display: none;
+    }
+
+    .demo-script strong {
+      display: block;
+      margin-bottom: 3px;
+      color: var(--ink);
+    }
+
+    .notes-panel {
+      align-self: start;
+      padding: 24px;
+      border: 1px solid #f0b58e;
+      border-radius: var(--radius);
+      background: var(--orange-light);
+    }
+
+    .notes-panel p:last-child {
+      margin-bottom: 0;
+    }
+
+    .progress-panel {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 22px;
+      margin-top: 24px;
+      padding: 22px 25px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .progress-copy {
+      flex: 1 1 auto;
+    }
+
+    .progress-copy p {
+      margin-bottom: 0;
+      color: var(--muted);
+    }
+
+    .progress-meter {
+      width: min(360px, 38vw);
+      height: 15px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e5eaf0;
+    }
+
+    .progress-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--orange), #f39a60);
+      transition: width 220ms ease;
+    }
+
+
+    .stretch-progress-panel {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 22px;
+      margin-bottom: 18px;
+      padding: 22px 25px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .stretch-progress-copy {
+      min-width: 250px;
+    }
+
+    .stretch-progress-copy h3 {
+      margin-bottom: 3px;
+    }
+
+    .stretch-progress-copy p {
+      margin-bottom: 0;
+      color: var(--muted);
+    }
+
+    .stretch-progress-meter {
+      flex: 1 1 auto;
+      max-width: 430px;
+      height: 16px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e5eaf0;
+    }
+
+    .stretch-progress-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      transition:
+        width 220ms ease,
+        background-color 220ms ease;
+    }
+
+    .stretch-red {
+      background: var(--red);
+    }
+
+    .stretch-yellow {
+      background: #d5a329;
+    }
+
+    .stretch-green {
+      background: var(--green);
+    }
+
+    .stretch-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px 22px;
+      margin-bottom: 22px;
+      color: var(--muted);
+      font-size: 0.87rem;
+    }
+
+    .stretch-legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .legend-color {
+      display: inline-block;
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+    }
+
+    .legend-red {
+      background: var(--red);
+    }
+
+    .legend-yellow {
+      background: #d5a329;
+    }
+
+    .legend-green {
+      background: var(--green);
+    }
+
+    .stretch-grid .nice-card {
+      display: flex;
+      min-height: 235px;
+      flex-direction: column;
+    }
+
+    .stretch-grid .nice-status {
+      align-self: flex-start;
+      background: var(--navy);
+      color: white;
+    }
+
+    .stretch-grid .acceptance-check {
+      margin-top: auto;
+    }
+
+    .final-box {
+      padding: 28px;
+      border: 1px solid #a9d9c2;
+      border-radius: var(--radius);
+      background: var(--green-light);
+    }
+
+    .final-box p:last-child {
+      margin-bottom: 0;
+    }
+
+    footer {
+      padding: 30px 0;
+      background: #0e1b29;
+      color: #a9b5c5;
+    }
+
+    .footer-inner {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .footer-inner p {
+      margin-bottom: 0;
+      font-size: 0.89rem;
+    }
+
+    @media (max-width: 950px) {
+      .hero-layout,
+      .section-heading,
+      .demo-panel {
+        grid-template-columns: 1fr;
+      }
+
+      .launch-grid,
+      .summary-grid,
+      .nice-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 700px) {
+      .hero {
+        padding: 58px 0 48px;
+      }
+
+      .launch-grid,
+      .summary-grid,
+      .walkthrough-grid,
+      .nice-grid {
+        grid-template-columns: 1fr;
+      }
+
+      section {
+        padding-top: 52px;
+      }
+
+      .progress-panel,
+      .stretch-progress-panel,
+      .footer-inner {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .progress-meter,
+      .stretch-progress-meter {
+        width: 100%;
+        max-width: none;
+      }
+    }
+
+    @media print {
+      .quick-nav,
+      .button-row,
+      #resetChecklist {
+        display: none !important;
+      }
+
+      body {
+        background: white;
+      }
+
+      .card,
+      .progress-panel {
+        box-shadow: none;
+      }
+
+      section,
+      .card {
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header class="hero">
+    <div class="page-shell hero-layout">
+      <div>
+        <p class="eyebrow">CSE 499 Final Acceptance Guide</p>
+        <h1>Distributed Route Risk Engine</h1>
+        <p class="hero-copy">
+          A single instructor-facing walkthrough for verifying all six must-have
+          requirements, reviewing completed stretch features, and presenting the
+          final system in a clear order.
+        </p>
+      </div>
+
+      <aside class="hero-status" aria-label="Current project completion status">
+        <div class="hero-status-row">
+          <span>Core requirements</span>
+          <strong>6 of 6 built</strong>
+        </div>
+        <div class="hero-status-row">
+          <span>Interactive dashboard</span>
+          <strong>Complete</strong>
+        </div>
+        <div class="hero-status-row">
+          <span>Route-risk benchmark</span>
+          <strong>Complete</strong>
+        </div>
+        <div class="status-pill">
+          <span class="status-dot" aria-hidden="true"></span>
+          Final verification
+        </div>
+      </aside>
+    </div>
+  </header>
+
+  <nav class="quick-nav" aria-label="Page sections">
+    <div class="page-shell quick-nav-inner">
+      <a href="#launch">Launch</a>
+      <a href="#requirements">M1–M6</a>
+      <a href="#nice-to-haves">Stretch Features</a>
+      <a href="#walkthrough">Demo Walkthrough</a>
+      <a href="#acceptance">Final Acceptance</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="launch" class="page-shell">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Start here</p>
+          <h2>Launch the final demonstration</h2>
+        </div>
+        <p class="section-description">
+          Keep the Docker terminal visible during the demonstration so worker
+          activity can be shown while the browser dashboard displays the
+          user-facing results.
+        </p>
+      </div>
+
+      <div class="launch-grid">
+        <article class="card launch-card">
+          <div class="number">1</div>
+          <h3>Start the distributed services</h3>
+          <p>
+            Start Redis, FastAPI, and eight Celery workers in the Docker
+            environment.
+          </p>
+          <code class="command">docker compose up --build -d --scale worker=8 redis api worker</code>
+        </article>
+
+        <article class="card launch-card">
+          <div class="number">2</div>
+          <h3>Open the route dashboard</h3>
+          <p>
+            Use the existing launcher. The dashboard opens locally at
+            <strong>127.0.0.1:8080</strong>.
+          </p>
+          <code class="command">.\scripts\open_route_dashboard.ps1 -SkipBuild</code>
+        </article>
+
+        <article class="card launch-card">
+          <div class="number">3</div>
+          <h3>Keep the evidence pages ready</h3>
+          <p>
+            Use this walkthrough during the demonstration and open the separate
+            benchmark-results page when verifying M6.
+          </p>
+          <div class="button-row">
+            <a class="button" href="http://127.0.0.1:8080" target="_blank" rel="noopener">
+              Open Dashboard
+            </a>
+            <a class="button button-secondary" href="benchmark-results.html" target="_blank">
+              Open Benchmarks
+            </a>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="page-shell">
+      <div class="summary-grid">
+        <article class="card summary-card">
+          <p class="summary-label">Final benchmark workload</p>
+          <p class="summary-value">40</p>
+          <p class="summary-note">Nevada route-risk tasks</p>
+        </article>
+
+        <article class="card summary-card">
+          <p class="summary-label">Route alternatives</p>
+          <p class="summary-value">3</p>
+          <p class="summary-note">Compared by the completed dashboard</p>
+        </article>
+
+        <article class="card summary-card">
+          <p class="summary-label">Measured speedup</p>
+          <p class="summary-value">7.35×</p>
+          <p class="summary-note">Eight workers compared with one</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="requirements" class="page-shell">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Required scope</p>
+          <h2>M1–M6 verification</h2>
+        </div>
+        <p class="section-description">
+          Check each item only after observing the evidence during a clean final
+          run. Progress is saved in this browser.
+        </p>
+      </div>
+
+      <div class="walkthrough-grid">
+        <article class="card requirement-card">
+          <div class="requirement-top">
+            <div>
+              <p class="requirement-code">M1</p>
+              <h3>Route-risk job submission</h3>
+            </div>
+            <span class="badge">Built</span>
+          </div>
+          <p>
+            Select an origin and destination on the dashboard map and submit the
+            analysis.
+          </p>
+          <ul class="evidence-list">
+            <li>The request is accepted.</li>
+            <li>A route-comparison job begins.</li>
+            <li>The job can be tracked through the processing workflow.</li>
+          </ul>
+          <label class="acceptance-check">
+            <input type="checkbox" data-check="m1">
+            <span>I observed a successful route-risk submission.</span>
+          </label>
+        </article>
+
+        <article class="card requirement-card">
+          <div class="requirement-top">
+            <div>
+              <p class="requirement-code">M2</p>
+              <h3>Route generation and checkpoints</h3>
+            </div>
+            <span class="badge">Built</span>
+          </div>
+          <p>
+            Confirm that three route alternatives are generated and drawn using
+            their actual road geometry.
+          </p>
+          <ul class="evidence-list">
+            <li>Each route displays distance and estimated time.</li>
+            <li>Each route includes a checkpoint count.</li>
+            <li>The visible route path corresponds to the generated route.</li>
+          </ul>
+          <label class="acceptance-check">
+            <input type="checkbox" data-check="m2">
+            <span>I observed generated routes and checkpoint information.</span>
+          </label>
+        </article>
+
+        <article class="card requirement-card">
+          <div class="requirement-top">
+            <div>
+              <p class="requirement-code">M3</p>
+              <h3>Distributed worker processing</h3>
+            </div>
+            <span class="badge">Built</span>
+          </div>
+          <p>
+            Keep the worker logs visible while the dashboard processes route
+            checkpoints.
+          </p>
+          <ul class="evidence-list">
+            <li>Checkpoint work is submitted through Redis and Celery.</li>
+            <li>Multiple worker containers process the workload.</li>
+            <li>Results return to the correct route-comparison job.</li>
+          </ul>
+          <label class="acceptance-check">
+            <input type="checkbox" data-check="m3">
+            <span>I observed Celery workers processing route-risk tasks.</span>
+          </label>
+        </article>
+
+        <article class="card requirement-card">
+          <div class="requirement-top">
+            <div>
+              <p class="requirement-code">M4</p>
+              <h3>Weather and road-event scoring</h3>
+            </div>
+            <span class="badge">Built</span>
+          </div>
+          <p>
+            Review weather, construction, closure, and related roadway factors
+            displayed for the analyzed alternatives.
+          </p>
+          <ul class="evidence-list">
+            <li>Weather conditions contribute to route scoring.</li>
+            <li>State roadway events are matched to nearby route locations.</li>
+            <li>A closure produces blocked-route behavior or a severe warning.</li>
+          </ul>
+          <label class="acceptance-check">
+            <input type="checkbox" data-check="m4">
+            <span>I observed meaningful weather and road-event scoring.</span>
+          </label>
+        </article>
+
+        <article class="card requirement-card">
+          <div class="requirement-top">
+            <div>
+              <p class="requirement-code">M5</p>
+              <h3>Route summary and recommendation</h3>
+            </div>
+            <span class="badge">Built</span>
+          </div>
+          <p>
+            Compare the route cards and identify the system-selected
+            recommendation.
+          </p>
+          <ul class="evidence-list">
+            <li>Risk score and risk level are displayed.</li>
+            <li>Blocked routes are identified clearly.</li>
+            <li>The recommendation prioritizes unblocked and lower-risk routes.</li>
+            <li>Time and distance break ties after safety considerations.</li>
+          </ul>
+          <label class="acceptance-check">
+            <input type="checkbox" data-check="m5">
+            <span>I observed a clear route-level recommendation.</span>
+          </label>
+        </article>
+
+        <article class="card requirement-card">
+          <div class="requirement-top">
+            <div>
+              <p class="requirement-code">M6</p>
+              <h3>Benchmark scaling demonstration</h3>
+            </div>
+            <span class="badge">Built</span>
+          </div>
+          <p>
+            Open the benchmark-results page and review the final 40-task Nevada
+            route-risk benchmark.
+          </p>
+          <ul class="evidence-list">
+            <li>Worker counts: 1, 2, 4, and 8.</li>
+            <li>Runtime: 32.11, 16.32, 8.74, and 4.37 seconds.</li>
+            <li>Throughput increased from 1.25 to 9.14 tasks/sec.</li>
+            <li>Measured speedup reached 7.35×.</li>
+            <li>Runtime, throughput, and speedup graphs were generated.</li>
+          </ul>
+          <label class="acceptance-check">
+            <input type="checkbox" data-check="m6">
+            <span>I reviewed the final benchmark evidence and graphs.</span>
+          </label>
+        </article>
+      </div>
+
+      <div class="progress-panel">
+        <div class="progress-copy">
+          <h3 id="progressTitle">Acceptance progress: 0 of 6</h3>
+          <p id="progressText">
+            Complete the walkthrough during a clean final system run.
+          </p>
+        </div>
+        <div class="progress-meter" aria-hidden="true">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <button class="button button-secondary" id="resetChecklist" type="button">
+          Reset checks
+        </button>
+      </div>
+    </section>
+
+
+    <section id="nice-to-haves" class="page-shell">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Additional value</p>
+          <h2>Nice-to-have and stretch verification</h2>
+        </div>
+        <p class="section-description">
+          All 20 stretch requirements from the final specification are listed
+          below in numerical order. Mark only the features that are actually
+          complete and demonstrable.
+        </p>
+      </div>
+
+      <div class="stretch-progress-panel">
+        <div class="stretch-progress-copy">
+          <h3 id="stretchProgressTitle">Stretch completion: 0 of 20</h3>
+          <p id="stretchProgressText">0% of stretch goals verified.</p>
+        </div>
+
+        <div class="stretch-progress-meter" aria-hidden="true">
+          <div class="stretch-progress-fill stretch-red" id="stretchProgressFill"></div>
+        </div>
+
+        <button class="button button-secondary" id="resetStretchChecklist" type="button">
+          Reset stretch checks
+        </button>
+      </div>
+
+      <div class="stretch-legend" aria-label="Stretch completion color legend">
+        <span><i class="legend-color legend-red"></i> 0%–40%: Red</span>
+        <span><i class="legend-color legend-yellow"></i> Over 40%–60%: Yellow</span>
+        <span><i class="legend-color legend-green"></i> Over 60%: Green</span>
+      </div>
+
+      <div class="nice-grid stretch-grid">
+        <article class="card nice-card">
+          <span class="nice-status">N1</span>
+          <h3>Simple Dashboard Interface</h3>
+          <p>A browser interface allows route submission, progress review, and final result viewing.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n1">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N2</span>
+          <h3>Interactive Map Visualization</h3>
+          <p>The generated route is displayed on an interactive map.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n2">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N3</span>
+          <h3>Checkpoint Markers on Map</h3>
+          <p>Route checkpoints are visible as markers or equivalent map elements.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n3">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N4</span>
+          <h3>Color-Coded Risk Visualization</h3>
+          <p>Risk levels are visually distinguished using colors on routes, segments, or markers.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n4">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N5</span>
+          <h3>Multiple Route Comparison</h3>
+          <p>Multiple route alternatives are compared and ranked.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n5">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N6</span>
+          <h3>Address Input</h3>
+          <p>Users can enter human-readable addresses that are converted into coordinates.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n6">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N7</span>
+          <h3>Benchmark Graph Generation</h3>
+          <p>Runtime, throughput, and/or speedup graphs are generated from benchmark results.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n7">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N8</span>
+          <h3>Benchmark Graphs in Dashboard</h3>
+          <p>Benchmark charts are viewable from the browser interface.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n8">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N9</span>
+          <h3>Persistent Route Job History</h3>
+          <p>Completed route-risk jobs remain retrievable after execution.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n9">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N10</span>
+          <h3>Previous Job Review Interface</h3>
+          <p>The dashboard allows users to select and review earlier completed jobs.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n10">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N11</span>
+          <h3>Multiple Road-Event Feed Providers</h3>
+          <p>The system supports more than one road-event provider or state data source.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n11">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N12</span>
+          <h3>Expanded State Coverage</h3>
+          <p>Road-event analysis works across multiple regions or states.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n12">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N13</span>
+          <h3>Exportable Route Risk Report</h3>
+          <p>Completed route-risk results can be exported in a readable format.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n13">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N14</span>
+          <h3>Configurable Scoring Weights</h3>
+          <p>Risk-factor weights can be adjusted through settings or configuration.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n14">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N15</span>
+          <h3>Driver Profile Options</h3>
+          <p>Driver profiles such as cautious or time-sensitive alter recommendations.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n15">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N16</span>
+          <h3>Time-of-Day Risk Controls</h3>
+          <p>Users can specify day or night conditions and see scoring change accordingly.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n16">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N17</span>
+          <h3>Improved Blocked-Route Explanation</h3>
+          <p>The route summary identifies closure location, matched event, and affected checkpoint.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n17">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N18</span>
+          <h3>API Health and Capability Endpoint</h3>
+          <p>A status endpoint reports API, Redis, worker, and capability information.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n18">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N19</span>
+          <h3>Automated Validation Scripts</h3>
+          <p>Repeatable scripts validate route submission, scoring, closures, and scaling behavior.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n19">
+            <span>Verified complete</span>
+          </label>
+        </article>
+
+        <article class="card nice-card">
+          <span class="nice-status">N20</span>
+          <h3>Cleaner Demo Script Output</h3>
+          <p>A polished demo script prints route progress and final recommendations clearly.</p>
+          <label class="acceptance-check">
+            <input type="checkbox" data-stretch="n20">
+            <span>Verified complete</span>
+          </label>
+        </article>
+      </div>
+    </section>
+
+
+    <section id="walkthrough" class="page-shell">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Instructor presentation</p>
+          <h2>Recommended demonstration walkthrough</h2>
+        </div>
+        <p class="section-description">
+          This order begins with the working product, exposes the distributed
+          architecture, and ends with quantitative evidence.
+        </p>
+      </div>
+
+      <div class="demo-panel">
+        <article class="card">
+          <ol class="demo-script">
+            <li>
+              <strong>Introduce the problem and architecture.</strong>
+              Explain that the system evaluates route safety rather than only
+              travel time, using FastAPI, Redis, Celery workers, weather data,
+              roadway events, scoring, and aggregation.
+            </li>
+            <li>
+              <strong>Select the origin and destination.</strong>
+              Click two points on the dashboard map and submit the analysis.
+            </li>
+            <li>
+              <strong>Show distributed processing.</strong>
+              Briefly point to active worker logs while route checkpoints are
+              processed.
+            </li>
+            <li>
+              <strong>Review the three route alternatives.</strong>
+              Show actual road geometry, distance, estimated time, checkpoint
+              counts, risk score, and road-event information.
+            </li>
+            <li>
+              <strong>Explain the recommendation.</strong>
+              Show that blocked routes are rejected first, then lower-risk
+              routes are prioritized before time and distance.
+            </li>
+            <li>
+              <strong>Demonstrate closure behavior.</strong>
+              Point out a route closure or construction result and explain why a
+              closure cannot be averaged into an otherwise low score.
+            </li>
+            <li>
+              <strong>Open the final benchmark page.</strong>
+              Review the 40-task workload, 1/2/4/8-worker comparison, 7.35×
+              speedup, and the three generated graphs.
+            </li>
+            <li>
+              <strong>Close with the learning outcome.</strong>
+              Summarize what was learned about distributed task queues,
+              integration, fault-aware scoring, aggregation, Docker, and
+              performance measurement.
+            </li>
+          </ol>
+        </article>
+
+        <aside class="notes-panel">
+          <p class="eyebrow">Presentation note</p>
+          <h3>Do not turn this into another application.</h3>
+          <p>
+            This page is a walkthrough and evidence checklist. The existing
+            route dashboard remains the product, and the README remains the
+            technical installation and project documentation.
+          </p>
+          <p>
+            Keeping these roles separate avoids duplicating dashboard code and
+            makes the final presentation easier to follow.
+          </p>
+        </aside>
+      </div>
+    </section>
+
+    <section id="acceptance" class="page-shell">
+      <div class="final-box">
+        <p class="eyebrow">Completion standard</p>
+        <h2>Final acceptance decision</h2>
+        <p>
+          The project is ready for instructor demonstration when all six
+          acceptance boxes above pass during one clean run, the benchmark images
+          load correctly, and the startup instructions can be followed without
+          undocumented repair steps.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="page-shell footer-inner">
+      <p>Distributed Route Risk Engine</p>
+      <p>Nathan Shumway · CSE 499 Senior Project</p>
+    </div>
+  </footer>
+
+
+  <script>
+    const coreCheckboxes = [...document.querySelectorAll("[data-check]")];
+    const stretchCheckboxes = [...document.querySelectorAll("[data-stretch]")];
+
+    const progressTitle = document.getElementById("progressTitle");
+    const progressText = document.getElementById("progressText");
+    const progressFill = document.getElementById("progressFill");
+    const resetButton = document.getElementById("resetChecklist");
+
+    const stretchProgressTitle = document.getElementById("stretchProgressTitle");
+    const stretchProgressText = document.getElementById("stretchProgressText");
+    const stretchProgressFill = document.getElementById("stretchProgressFill");
+    const resetStretchButton = document.getElementById("resetStretchChecklist");
+
+    const coreStorageKey = "routeRiskFinalVerification";
+    const stretchStorageKey = "routeRiskStretchVerification";
+
+    function loadCoreChecks() {
+      const saved = JSON.parse(localStorage.getItem(coreStorageKey) || "{}");
+      coreCheckboxes.forEach((checkbox) => {
+        checkbox.checked = Boolean(saved[checkbox.dataset.check]);
+      });
+      updateCoreProgress();
+    }
+
+    function saveCoreChecks() {
+      const state = {};
+      coreCheckboxes.forEach((checkbox) => {
+        state[checkbox.dataset.check] = checkbox.checked;
+      });
+      localStorage.setItem(coreStorageKey, JSON.stringify(state));
+      updateCoreProgress();
+    }
+
+    function updateCoreProgress() {
+      const complete = coreCheckboxes.filter((checkbox) => checkbox.checked).length;
+      const total = coreCheckboxes.length;
+      const percent = total ? Math.round((complete / total) * 100) : 0;
+
+      progressTitle.textContent = `Acceptance progress: ${complete} of ${total}`;
+      progressFill.style.width = `${percent}%`;
+
+      progressText.textContent =
+        complete === total
+          ? "All six must-have requirements were observed during this verification run."
+          : "Complete the walkthrough during a clean final system run.";
+    }
+
+    function loadStretchChecks() {
+      const saved = JSON.parse(localStorage.getItem(stretchStorageKey) || "{}");
+      stretchCheckboxes.forEach((checkbox) => {
+        checkbox.checked = Boolean(saved[checkbox.dataset.stretch]);
+      });
+      updateStretchProgress();
+    }
+
+    function saveStretchChecks() {
+      const state = {};
+      stretchCheckboxes.forEach((checkbox) => {
+        state[checkbox.dataset.stretch] = checkbox.checked;
+      });
+      localStorage.setItem(stretchStorageKey, JSON.stringify(state));
+      updateStretchProgress();
+    }
+
+    function updateStretchProgress() {
+      const complete = stretchCheckboxes.filter((checkbox) => checkbox.checked).length;
+      const total = stretchCheckboxes.length;
+      const percent = total ? Math.round((complete / total) * 100) : 0;
+
+      stretchProgressTitle.textContent =
+        `Stretch completion: ${complete} of ${total}`;
+      stretchProgressText.textContent =
+        `${percent}% of stretch goals verified.`;
+      stretchProgressFill.style.width = `${percent}%`;
+
+      stretchProgressFill.classList.remove(
+        "stretch-red",
+        "stretch-yellow",
+        "stretch-green"
+      );
+
+      if (percent > 60) {
+        stretchProgressFill.classList.add("stretch-green");
+      } else if (percent > 40) {
+        stretchProgressFill.classList.add("stretch-yellow");
+      } else {
+        stretchProgressFill.classList.add("stretch-red");
+      }
+    }
+
+    coreCheckboxes.forEach((checkbox) => {
+      checkbox.addEventListener("change", saveCoreChecks);
+    });
+
+    stretchCheckboxes.forEach((checkbox) => {
+      checkbox.addEventListener("change", saveStretchChecks);
+    });
+
+    resetButton.addEventListener("click", () => {
+      coreCheckboxes.forEach((checkbox) => {
+        checkbox.checked = false;
+      });
+      localStorage.removeItem(coreStorageKey);
+      updateCoreProgress();
+    });
+
+    resetStretchButton.addEventListener("click", () => {
+      stretchCheckboxes.forEach((checkbox) => {
+        checkbox.checked = false;
+      });
+      localStorage.removeItem(stretchStorageKey);
+      updateStretchProgress();
+    });
+
+    loadCoreChecks();
+    loadStretchChecks();
+  </script>
+
+</body>
+</html>
