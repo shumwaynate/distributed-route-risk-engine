@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from app.api.routers.jobs import router as jobs_router
 from app.api.routers.routes import router as routes_router
+from app.api.routers.history import router as history_router
 from app.api.health import build_health_report
 
 
@@ -17,6 +18,7 @@ app = FastAPI(
 )
 
 app.include_router(routes_router)
+app.include_router(history_router)
 app.include_router(jobs_router)
 
 

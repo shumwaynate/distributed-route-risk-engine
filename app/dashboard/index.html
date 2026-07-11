@@ -2313,6 +2313,16 @@
     return response;
   };
 
+  window.addEventListener(
+    "route-risk:comparison-loaded",
+    (event) => {
+      const payload =
+        event?.detail?.comparison ??
+        event?.detail;
+      captureComparison(payload);
+    }
+  );
+
   updateToggleText();
 })();
 </script>
@@ -3423,8 +3433,810 @@
 
     return response;
   };
+  window.addEventListener(
+    "route-risk:comparison-loaded",
+    (event) => {
+      const detail = event?.detail ?? {};
+      const payload =
+        detail.comparison ?? detail;
+
+      if (
+        !payload ||
+        !Array.isArray(payload.routes) ||
+        payload.routes.length === 0
+      ) {
+        return;
+      }
+
+      latestComparison = payload;
+      latestSubmissionRequest =
+        detail.request ??
+        latestSubmissionRequest;
+      latestJobStatus =
+        detail.jobStatus ??
+        latestJobStatus;
+      downloadButton.disabled = false;
+      exportStatus.textContent =
+        detail.historical
+          ? "HTML report ready for this saved analysis."
+          : "HTML report ready.";
+    }
+  );
+
 })();
 </script>
 <!-- HTML_REPORT_EXPORT_FEATURE_END -->
+
+<!-- ROUTE_HISTORY_FEATURE_START -->
+<style id="route-history-feature-styles">
+  .history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+
+  .history-header h2 {
+    margin: 0;
+    font-size: 1.15rem;
+  }
+
+  .history-header p,
+  .history-status {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 0.86rem;
+  }
+
+  .history-status {
+    margin-bottom: 12px;
+  }
+
+  .history-refresh-button {
+    background: #e8edf5;
+    color: var(--text);
+  }
+
+  .history-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .history-card {
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    padding: 13px;
+    background: #ffffff;
+  }
+
+  .history-card.active {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+
+  .history-card-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 9px;
+  }
+
+  .history-date {
+    color: var(--muted);
+    font-size: 0.77rem;
+    white-space: nowrap;
+  }
+
+  .history-route-pair {
+    margin: 0 0 9px;
+    color: #334155;
+    font-size: 0.84rem;
+    line-height: 1.45;
+  }
+
+  .history-meta {
+    display: flex;
+    gap: 7px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+
+  .history-meta span {
+    border-radius: 999px;
+    padding: 3px 7px;
+    background: #eef2f7;
+    color: #334155;
+    font-size: 0.74rem;
+    font-weight: 700;
+  }
+
+  .history-action-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .history-open-button {
+    width: 100%;
+    background: var(--accent);
+    color: #ffffff;
+  }
+
+  .history-remove-button {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
+  .history-remove-button:hover {
+    background: #fecaca;
+  }
+
+  .history-viewing-banner {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    background: #eff6ff;
+    color: #1e3a8a;
+    font-size: 0.85rem;
+  }
+
+  .history-viewing-banner.visible {
+    display: flex;
+  }
+
+  .history-rerun-button {
+    background: #1d4ed8;
+    color: #ffffff;
+  }
+
+  @media (max-width: 760px) {
+    .history-list {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* ROUTE_HISTORY_COLLAPSE_V1 */
+  .history-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .history-toggle-button {
+    background: var(--accent);
+    color: #ffffff;
+  }
+
+  .route-history-panel-collapsed #routeHistoryStatus,
+  .route-history-panel-collapsed #routeHistoryList,
+  .route-history-panel-collapsed #routeHistoryViewingBanner {
+    display: none !important;
+  }
+</style>
+
+<script id="route-history-feature">
+(() => {
+  "use strict";
+
+  const controlsPanel =
+    document.querySelector("main > .panel");
+  const analyzeButtonElement =
+    document.getElementById("analyzeButton");
+  const resetButtonElement =
+    document.getElementById("resetButton");
+
+  if (
+    !controlsPanel ||
+    !analyzeButtonElement ||
+    !resetButtonElement ||
+    typeof L === "undefined" ||
+    typeof map === "undefined" ||
+    typeof renderResults !== "function" ||
+    typeof resetSelection !== "function"
+  ) {
+    console.warn("Route history could not initialize.");
+    return;
+  }
+
+  const historyPanel = document.createElement("section");
+  historyPanel.id = "routeHistoryPanel";
+  historyPanel.className = "panel route-history-panel-collapsed";
+  historyPanel.innerHTML = `
+    <div class="history-header">
+      <div>
+        <h2>Previous analyses</h2>
+        <p>
+          Open a saved result without rerunning routing,
+          weather, roadway feeds, or Celery tasks.
+        </p>
+      </div>
+      <button
+        id="routeHistoryRefreshButton"
+        class="history-refresh-button"
+        type="button"
+      >
+        Refresh history
+      </button>
+    </div>
+
+    <div
+      id="routeHistoryStatus"
+      class="history-status"
+      aria-live="polite"
+    >
+      Loading saved analyses…
+    </div>
+
+    <div
+      id="routeHistoryList"
+      class="history-list"
+    ></div>
+
+    <div
+      id="routeHistoryViewingBanner"
+      class="history-viewing-banner"
+    >
+      <span id="routeHistoryViewingText"></span>
+      <button
+        id="routeHistoryRerunButton"
+        class="history-rerun-button"
+        type="button"
+      >
+        Run again with current conditions
+      </button>
+    </div>
+  `;
+  controlsPanel.insertAdjacentElement(
+    "afterend",
+    historyPanel
+  );
+
+  // ROUTE_HISTORY_COLLAPSE_V1
+  const historyHeader =
+    historyPanel.querySelector(".history-header");
+  const historyTitle =
+    historyPanel.querySelector(".history-header h2");
+  const existingRefreshButton =
+    historyPanel.querySelector("#routeHistoryRefreshButton");
+
+  if (
+    !historyHeader ||
+    !historyTitle ||
+    !existingRefreshButton
+  ) {
+    console.warn(
+      "Route history collapse controls could not initialize."
+    );
+    return;
+  }
+
+  historyTitle.id = "routeHistoryTitle";
+  historyTitle.textContent = "Previous analyses (0)";
+
+  const headerActions =
+    document.createElement("div");
+  headerActions.className =
+    "history-header-actions";
+
+  const historyToggleButton =
+    document.createElement("button");
+  historyToggleButton.id =
+    "routeHistoryToggleButton";
+  historyToggleButton.className =
+    "history-toggle-button";
+  historyToggleButton.type = "button";
+  historyToggleButton.textContent =
+    "Show history";
+  historyToggleButton.setAttribute(
+    "aria-expanded",
+    "false"
+  );
+  historyToggleButton.setAttribute(
+    "aria-controls",
+    "routeHistoryList"
+  );
+
+  existingRefreshButton.before(headerActions);
+  headerActions.append(
+    historyToggleButton,
+    existingRefreshButton
+  );
+
+  const refreshButton = document.getElementById(
+    "routeHistoryRefreshButton"
+  );
+  const historyStatus = document.getElementById(
+    "routeHistoryStatus"
+  );
+  const historyList = document.getElementById(
+    "routeHistoryList"
+  );
+  const viewingBanner = document.getElementById(
+    "routeHistoryViewingBanner"
+  );
+  const viewingText = document.getElementById(
+    "routeHistoryViewingText"
+  );
+  const rerunButton = document.getElementById(
+    "routeHistoryRerunButton"
+  );
+
+  let selectedHistoryJobId = null;
+
+  function escapeHistoryHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function endpointText(endpoint, fallback) {
+    const label = String(endpoint?.label ?? "").trim();
+    const latitude = Number(endpoint?.latitude);
+    const longitude = Number(endpoint?.longitude);
+    const hasCoordinates =
+      Number.isFinite(latitude) &&
+      Number.isFinite(longitude);
+    const genericLabels = new Set([
+      "",
+      "origin",
+      "selected origin",
+      "destination",
+      "selected destination",
+    ]);
+    const displayLabel =
+      genericLabels.has(label.toLowerCase())
+        ? fallback
+        : label;
+
+    if (!hasCoordinates) {
+      return displayLabel;
+    }
+
+    return (
+      `${displayLabel} (` +
+      `${latitude.toFixed(5)}, ` +
+      `${longitude.toFixed(5)})`
+    );
+  }
+
+  function savedDateText(value) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+      ? "Saved analysis"
+      : date.toLocaleString();
+  }
+
+  function historyCardHtml(item) {
+    const recommended =
+      item?.recommended_route ?? {};
+    const routeLabel =
+      recommended.route_label ??
+      "Recommended route";
+    const riskText =
+      `${recommended.risk_level ?? "Unknown"} · ` +
+      `Score ${recommended.risk_score ?? "—"}`;
+
+    return `
+      <article
+        class="history-card${
+          item.job_id === selectedHistoryJobId
+            ? " active"
+            : ""
+        }"
+        data-history-job-id="${escapeHistoryHtml(item.job_id)}"
+      >
+        <div class="history-card-heading">
+          <strong>${escapeHistoryHtml(routeLabel)}</strong>
+          <span class="history-date">
+            ${escapeHistoryHtml(savedDateText(item.saved_at_utc))}
+          </span>
+        </div>
+
+        <p class="history-route-pair">
+          ${escapeHistoryHtml(endpointText(item.origin, "Origin"))}
+          <br>to<br>
+          ${escapeHistoryHtml(endpointText(item.destination, "Destination"))}
+        </p>
+
+        <div class="history-meta">
+          <span>${escapeHistoryHtml(riskText)}</span>
+          <span>${escapeHistoryHtml(`${item.route_count ?? "—"} routes`)}</span>
+          <span>${escapeHistoryHtml(`${item.checkpoint_count_per_route ?? "—"} checkpoints each`)}</span>
+          <span>${escapeHistoryHtml(item.driving_period ?? "Day")}</span>
+        </div>
+
+        <div class="history-action-row">
+          <button
+            class="history-open-button"
+            type="button"
+            data-open-history-job="${escapeHistoryHtml(item.job_id)}"
+          >
+            Open saved analysis
+          </button>
+          <button
+            class="history-remove-button"
+            type="button"
+            data-remove-history-job="${escapeHistoryHtml(item.job_id)}"
+          >
+            Remove
+          </button>
+        </div>
+      </article>
+    `;
+  }
+
+  async function readHistoryResponse(response) {
+    if (typeof readJsonResponse === "function") {
+      return readJsonResponse(response);
+    }
+
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(
+        payload?.detail ??
+        "The history request failed."
+      );
+    }
+    return payload;
+  }
+
+  async function loadHistory() {
+    refreshButton.disabled = true;
+    historyStatus.textContent =
+      "Loading saved analyses…";
+
+    try {
+      const response = await fetch(
+        "/api/route_history?limit=10"
+      );
+      const payload =
+        await readHistoryResponse(response);
+      const items = Array.isArray(payload?.items)
+        ? payload.items
+        : [];
+
+      const historyCount = Number(
+        payload?.history_count ?? items.length
+      );
+      historyTitle.textContent =
+        `Previous analyses (${
+          Number.isFinite(historyCount)
+            ? historyCount
+            : items.length
+        })`;
+
+      historyList.innerHTML = items
+        .map(historyCardHtml)
+        .join("");
+
+      historyStatus.textContent =
+        items.length === 0
+          ? "No saved route comparisons yet. A completed READY comparison will be saved automatically."
+          : `${items.length} saved analysis${items.length === 1 ? "" : "es"} available. The newest 10 are retained.`;
+    } catch (error) {
+      console.error(error);
+      historyList.innerHTML = "";
+      historyStatus.textContent =
+        `Could not load route history: ${error.message}`;
+    } finally {
+      refreshButton.disabled = false;
+    }
+  }
+
+  function validEndpoint(endpoint) {
+    return (
+      Number.isFinite(Number(endpoint?.latitude)) &&
+      Number.isFinite(Number(endpoint?.longitude))
+    );
+  }
+
+  function restoreEndpointMarkers(record) {
+    const originLocation = record?.origin ?? {};
+    const destinationLocation =
+      record?.destination ?? {};
+
+    if (
+      !validEndpoint(originLocation) ||
+      !validEndpoint(destinationLocation)
+    ) {
+      throw new Error(
+        "The saved analysis does not contain valid endpoint coordinates."
+      );
+    }
+
+    origin = L.latLng(
+      Number(originLocation.latitude),
+      Number(originLocation.longitude)
+    );
+    destination = L.latLng(
+      Number(destinationLocation.latitude),
+      Number(destinationLocation.longitude)
+    );
+
+    originMarker = L.circleMarker(origin, {
+      radius: 9,
+      color: "#ffffff",
+      weight: 3,
+      fillColor: "#15803d",
+      fillOpacity: 1,
+    })
+      .addTo(map)
+      .bindPopup("Origin");
+
+    destinationMarker = L.circleMarker(destination, {
+      radius: 9,
+      color: "#ffffff",
+      weight: 3,
+      fillColor: "#b91c1c",
+      fillOpacity: 1,
+    })
+      .addTo(map)
+      .bindPopup("Destination");
+
+    originValue.textContent =
+      formatCoordinate(origin);
+    destinationValue.textContent =
+      formatCoordinate(destination);
+    analyzeButton.disabled = false;
+  }
+
+  function restoreControls(request) {
+    const checkpointInput =
+      document.getElementById("checkpointCount");
+    const radiusInput =
+      document.getElementById("radiusMiles");
+    const nightInput =
+      document.getElementById("nightMode");
+
+    if (
+      Number.isFinite(Number(request?.checkpoint_count))
+    ) {
+      checkpointInput.value =
+        request.checkpoint_count;
+    }
+
+    if (
+      Number.isFinite(
+        Number(request?.road_event_radius_miles)
+      )
+    ) {
+      radiusInput.value =
+        request.road_event_radius_miles;
+    }
+
+    nightInput.value =
+      request?.is_night ? "true" : "false";
+  }
+
+  function clearHistoricalBanner() {
+    selectedHistoryJobId = null;
+    viewingBanner.classList.remove("visible");
+    viewingText.textContent = "";
+    historyList
+      .querySelectorAll(".history-card")
+      .forEach((card) => card.classList.remove("active"));
+  }
+
+  function markSelectedHistoryCard(jobId) {
+    selectedHistoryJobId = jobId;
+    historyList
+      .querySelectorAll(".history-card")
+      .forEach((card) => {
+        card.classList.toggle(
+          "active",
+          card.dataset.historyJobId === jobId
+        );
+      });
+  }
+
+  async function openHistory(jobId) {
+    historyStatus.textContent =
+      "Opening saved analysis…";
+
+    try {
+      const response = await fetch(
+        `/api/route_history/${encodeURIComponent(jobId)}`
+      );
+      const record =
+        await readHistoryResponse(response);
+      const comparison = record?.comparison;
+      const request = record?.request ?? {};
+
+      if (
+        !comparison ||
+        !Array.isArray(comparison.routes) ||
+        comparison.routes.length === 0
+      ) {
+        throw new Error(
+          "The saved analysis does not contain route geometry."
+        );
+      }
+
+      resetSelection();
+      restoreEndpointMarkers(record);
+      restoreControls(request);
+
+      detectedStateCodesForCurrentJob =
+        Array.isArray(comparison.state_codes)
+          ? [...comparison.state_codes]
+          : [];
+
+      stateFeedMode.value =
+        detectedStateCodesForCurrentJob.length > 0
+          ? detectedStateCodesForCurrentJob.join(", ")
+          : "No supported state feeds detected";
+
+      renderResults(comparison);
+      updateStatus(
+        `Viewing saved analysis from ${savedDateText(record.saved_at_utc)}. No routing, weather, roadway, or Celery work was rerun.`,
+        100
+      );
+
+      markSelectedHistoryCard(jobId);
+      viewingText.textContent =
+        `Viewing saved analysis from ${savedDateText(record.saved_at_utc)}. ` +
+        "Weather and roadway conditions reflect the original analysis and have not been refreshed.";
+      viewingBanner.classList.add("visible");
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "route-risk:comparison-loaded",
+          {
+            detail: {
+              historical: true,
+              comparison,
+              request,
+              jobStatus:
+                record.job_status ?? null,
+            },
+          }
+        )
+      );
+
+      historyStatus.textContent =
+        "Saved analysis opened. Full stored route geometry and checkpoint results are displayed.";
+
+      resultsPanel.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    } catch (error) {
+      console.error(error);
+      historyStatus.textContent =
+        `Could not open the saved analysis: ${error.message}`;
+    }
+  }
+
+  async function removeHistory(jobId) {
+    const confirmed = window.confirm(
+      "Remove this saved route analysis? This cannot be undone."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    historyStatus.textContent =
+      "Removing saved analysis…";
+
+    try {
+      const response = await fetch(
+        `/api/route_history/${encodeURIComponent(jobId)}`,
+        { method: "DELETE" }
+      );
+      await readHistoryResponse(response);
+
+      if (selectedHistoryJobId === jobId) {
+        resetSelection();
+        clearHistoricalBanner();
+        updateStatus(
+          "The saved analysis was removed.",
+          0
+        );
+      }
+
+      await loadHistory();
+      historyStatus.textContent =
+        "Saved analysis removed.";
+    } catch (error) {
+      console.error(error);
+      historyStatus.textContent =
+        `Could not remove the saved analysis: ${error.message}`;
+    }
+  }
+
+  historyList.addEventListener("click", (event) => {
+    const removeButton = event.target.closest(
+      "[data-remove-history-job]"
+    );
+    if (removeButton) {
+      removeHistory(
+        removeButton.dataset.removeHistoryJob
+      );
+      return;
+    }
+
+    const openButton = event.target.closest(
+      "[data-open-history-job]"
+    );
+    if (openButton) {
+      openHistory(openButton.dataset.openHistoryJob);
+    }
+  });
+
+  historyToggleButton.addEventListener(
+    "click",
+    () => {
+      const isCollapsed =
+        historyPanel.classList.toggle(
+          "route-history-panel-collapsed"
+        );
+
+      historyToggleButton.textContent =
+        isCollapsed
+          ? "Show history"
+          : "Hide history";
+      historyToggleButton.setAttribute(
+        "aria-expanded",
+        isCollapsed ? "false" : "true"
+      );
+    }
+  );
+
+  refreshButton.addEventListener("click", loadHistory);
+
+  rerunButton.addEventListener("click", () => {
+    if (!analyzeButtonElement.disabled) {
+      analyzeButtonElement.click();
+    }
+  });
+
+  analyzeButtonElement.addEventListener(
+    "click",
+    clearHistoricalBanner
+  );
+  resetButtonElement.addEventListener(
+    "click",
+    clearHistoricalBanner
+  );
+
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (...argumentsList) => {
+    const response =
+      await originalFetch(...argumentsList);
+    const input = argumentsList[0];
+    const url =
+      typeof input === "string"
+        ? input
+        : input?.url ?? String(input ?? "");
+
+    if (
+      response.ok &&
+      url.includes("route_comparison_summary/")
+    ) {
+      window.setTimeout(loadHistory, 250);
+    }
+
+    return response;
+  };
+
+  loadHistory();
+})();
+</script>
+<!-- ROUTE_HISTORY_FEATURE_END -->
 </body>
 </html>

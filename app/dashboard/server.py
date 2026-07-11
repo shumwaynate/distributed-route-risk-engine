@@ -148,3 +148,50 @@ def route_comparison_summary(job_id: str) -> Any:
         ) from exc
 
     return _proxy_response(response)
+
+# N9_N10_ROUTE_HISTORY
+@app.get("/api/route_history")
+def route_history(limit: int = 20) -> Any:
+    safe_limit = max(1, min(int(limit), 200))
+    try:
+        response = requests.get(
+            f"{BACKEND_BASE_URL}/route_history",
+            params={"limit": safe_limit},
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not reach the Route Risk API: {exc}",
+        ) from exc
+    return _proxy_response(response)
+
+
+@app.get("/api/route_history/{job_id}")
+def route_history_detail(job_id: str) -> Any:
+    try:
+        response = requests.get(
+            f"{BACKEND_BASE_URL}/route_history/{job_id}",
+            timeout=60,
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not reach the Route Risk API: {exc}",
+        ) from exc
+    return _proxy_response(response)
+
+# N9_N10_HISTORY_RETENTION_DELETE
+@app.delete("/api/route_history/{job_id}")
+def delete_route_history(job_id: str) -> Any:
+    try:
+        response = requests.delete(
+            f"{BACKEND_BASE_URL}/route_history/{job_id}",
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not reach the Route Risk API: {exc}",
+        ) from exc
+    return _proxy_response(response)

@@ -16,6 +16,8 @@ from app.api.services.route_summaries import (
 )
 
 
+from app.api.history_store import save_route_history_snapshot
+
 router = APIRouter(
     tags=["Route Risk"],
 )
@@ -64,10 +66,29 @@ def route_risk_summary(
 def route_comparison_summary(
     job_id: str,
 ) -> Dict[str, Any]:
-    """
-    Return a summarized multi-route comparison.
-    """
-
-    return build_route_comparison_summary_response(
+    """Return a summarized multi-route comparison."""
+    summary = build_route_comparison_summary_response(
         job_id
     )
+
+    if summary.get("comparison_status") == "READY":
+        try:
+            saved_item = save_route_history_snapshot(
+                job_id=job_id,
+                comparison=summary,
+            )
+            summary["history_persistence"] = {
+                "status": "saved",
+                "saved_at_utc": saved_item.get(
+                    "saved_at_utc"
+                ),
+            }
+        except Exception as error:
+            # A persistence problem must not hide a
+            # completed route result from the dashboard.
+            summary["history_persistence"] = {
+                "status": "failed",
+                "error_type": type(error).__name__,
+            }
+
+    return summary

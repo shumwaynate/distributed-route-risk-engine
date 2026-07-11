@@ -1,4 +1,4 @@
-﻿# Python virtual environments
+# Python virtual environments
 .venv/
 venv/
 env/
@@ -37,3 +37,6 @@ Pasted text.txt
 
 # Logs
 *.log
+
+# Local saved route-analysis snapshots
+data/route_history/
