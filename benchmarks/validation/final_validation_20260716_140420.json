@@ -1,0 +1,100 @@
+{
+  "generated_at_utc": "2026-07-16T20:04:20.382006+00:00",
+  "project_root": "C:\\Users\\nates\\Documents\\distributed-route-risk-engine",
+  "python_version": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "arguments": {
+    "api_base_url": "http://127.0.0.1:8000",
+    "request_timeout": 45.0,
+    "job_timeout": 240.0,
+    "skip_api": false,
+    "skip_comparison": false,
+    "skip_long_route_check": false,
+    "no_report": false
+  },
+  "summary": {
+    "passed": 13,
+    "failed": 0,
+    "skipped": 0,
+    "overall_status": "PASS"
+  },
+  "checks": [
+    {
+      "name": "Required project files",
+      "status": "PASS",
+      "detail": "Found all 26 required project files.",
+      "duration_seconds": 0.001
+    },
+    {
+      "name": "Python syntax compilation",
+      "status": "PASS",
+      "detail": "Python source compiled without syntax errors.",
+      "duration_seconds": 0.067
+    },
+    {
+      "name": "State 511 provider registry",
+      "status": "PASS",
+      "detail": "Nevada, Arizona, and Utah provider clients are registered.",
+      "duration_seconds": 0.003
+    },
+    {
+      "name": "Automatic route-state detection",
+      "status": "PASS",
+      "detail": "Automatic route-geometry detection passed: NV -> ['NV']; AZ -> ['AZ']; UT -> ['UT']",
+      "duration_seconds": 0.321
+    },
+    {
+      "name": "Day/Night schedule precedence",
+      "status": "PASS",
+      "detail": "route_risk.testing.manual_driving_period_precedence_test: All precedence regression checks passed.",
+      "duration_seconds": 0.041
+    },
+    {
+      "name": "Geometry-aware closure matching",
+      "status": "PASS",
+      "detail": "route_risk.testing.manual_geometry_aware_closure_test: All geometry-aware closure checks passed.",
+      "duration_seconds": 0.046
+    },
+    {
+      "name": "Nevada construction versus closure logic",
+      "status": "PASS",
+      "detail": "route_risk.testing.manual_nevada_construction_logic_test: All Nevada construction logic checks passed.",
+      "duration_seconds": 0.183
+    },
+    {
+      "name": "Near-duplicate route filtering",
+      "status": "PASS",
+      "detail": "route_risk.testing.manual_route_similarity_test: All route duplicate filtering checks passed.",
+      "duration_seconds": 0.061
+    },
+    {
+      "name": "Route-risk scaling evidence",
+      "status": "PASS",
+      "detail": "40 tasks: 1 worker to 8 workers produced 7.34x runtime speedup and 7.34x throughput; higher-worker runtime was 4.375s.",
+      "duration_seconds": 0.001
+    },
+    {
+      "name": "API health and capability",
+      "status": "PASS",
+      "detail": "API responded at http://127.0.0.1:8000; Single-route and multi-route comparison endpoints are available",
+      "duration_seconds": 0.025
+    },
+    {
+      "name": "Distributed single-route closure workflow",
+      "status": "PASS",
+      "detail": "Job 74ef0b20-36bb-44f7-b229-0de0d1d96675: 8/8 Celery tasks completed; closure produced Blocked score 100 with 1 blocking checkpoint(s).",
+      "duration_seconds": 2.197
+    },
+    {
+      "name": "Distributed route comparison and recommendation",
+      "status": "PASS",
+      "detail": "Job 4cb949ca-b8b5-468e-9267-f2daefc1ff77: evaluated 3 route(s), completed 18/18 tasks, and recommended ORS Alternative Route 1 (Low, score 0).",
+      "duration_seconds": 6.928
+    },
+    {
+      "name": "Friendly long-route limitation response",
+      "status": "PASS",
+      "detail": "Long alternative-route request returned the expected friendly HTTP 422 limitation response.",
+      "duration_seconds": 0.598
+    }
+  ]
+}
