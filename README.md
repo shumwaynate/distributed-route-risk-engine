@@ -407,11 +407,15 @@ distributed-route-risk-engine/
 |   |-- open_route_dashboard.ps1
 |   |-- validate_final_project.py
 |   |-- plot_benchmarks.py
-|   `-- test and benchmark scripts
+|   `-- Test and benchmark scripts
 |
-|-- benchmarks/        Results, graphs, and validation reports
+|-- benchmarks/        Benchmark results, graphs, and validation output
 |-- data/route_history Local saved dashboard analyses
-|-- final_evidence/    Final reports and benchmark evidence
+|-- docs/
+|   |-- archive/       Historical planning and project handoff documents
+|   `-- reports/       Browser-readable verification and benchmark reports
+|
+|-- final_evidence/    Final validation, reports, and performance evidence
 |-- docker-compose.yml
 |-- Dockerfile
 |-- requirements.txt
